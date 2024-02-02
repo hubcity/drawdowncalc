@@ -16,8 +16,6 @@ RMD = [27.4, 26.5, 25.6, 24.7, 23.8, 22.9, 22.0, 21.2, 20.3, 19.5,  # age 70-79
         6.3,  5.9,  5.5,  5.2,  4.9,  4.5,  4.2,  3.9,  3.7,  3.4,  # age 100+
         3.1,  2.9,  2.6,  2.4,  2.1,  1.9,  1.9,  1.9,  1.9,  1.9]
 
-cg_tax = 0.15                   # capital gains tax rate
-
 def agelist(str):
     for x in str.split(','):
         m = re.match(r'^(\d+)(-(\d+)?)?$', x)
@@ -57,13 +55,18 @@ class Data:
                             [693750, 37]]
         default_stded = 27700
         default_state_taxrates = [[0, 0]]
+        default_cg_taxrates = [[0,        0],
+                               [89250,   15],
+                               [553850,  20]]
 
         tmp_taxrates = default_taxrates
         tmp_state_taxrates = default_state_taxrates
+        tmp_cg_taxrates = default_cg_taxrates
 
         if 'taxes' in d:
             tmp_taxrates = d['taxes'].get('taxrates', default_taxrates)
             tmp_state_taxrates = d['taxes'].get('state_rate', default_state_taxrates)
+            tmp_cg_taxrates = d['taxes'].get('cg_taxrates', default_cg_taxrates)
             if (type(tmp_state_taxrates) is not list):
                 tmp_state_taxrates = [[0, tmp_state_taxrates]]
             self.stded = d['taxes'].get('stded', default_stded)
@@ -77,11 +80,16 @@ class Data:
         self.state_taxrates = [[x,y/100.0] for (x,y) in tmp_state_taxrates]
         cutoffs = [x[0] for x in self.state_taxrates][1:] + [float('inf')]
         self.state_taxtable = list(map(lambda x, y: [x[1], x[0], y], self.state_taxrates, cutoffs))
+        self.cg_taxrates = [[x,y/100.0] for (x,y) in tmp_cg_taxrates]
+        cutoffs = [x[0] for x in self.cg_taxrates][1:] + [float('inf')]
+        self.cg_taxtable = list(map(lambda x, y: [x[1], x[0], y], self.cg_taxrates, cutoffs))
 
 
         # add columns for the standard deduction, tax brackets, 
-        # state std deduction, state bracket and total taxes
-        vper += 1 + len(self.taxtable) + 1 + len(self.state_taxtable) + 1
+        # state std deduction, state bracket, cg brackets(xN) and total taxes
+        global cg_vper 
+        cg_vper = 9
+        vper += 1 + len(self.taxtable) + 1 + len(self.state_taxtable) + cg_vper*len(self.cg_taxtable) + 1
 
         if 'prep' in d:
             self.workyr = d['prep']['workyears']
@@ -159,7 +167,7 @@ def solve(args):
     A = []
     b = []
 
-    # put the equality constraints here
+    # put the equality constrtaints here
     AE = []
     be = []
 
@@ -194,8 +202,10 @@ def solve(args):
         A += [row]
         if S.maxsave_inflation:
             b += [S.maxsave * S.i_rate ** year]
+
         else:
             b += [S.maxsave]
+
 
         # max IRA per year
         row = [0] * nvars
@@ -203,16 +213,18 @@ def solve(args):
         A += [row]
         b += [S.IRA['maxcontrib'] * S.i_rate ** year]
 
+
         # max Roth per year
         row = [0] * nvars
         row[n1+year*vper+2] = 1
         A += [row]
         b += [S.roth['maxcontrib'] * S.i_rate ** year]
 
-    # The constraint starts like this:
-    #   TAX = RATE * (IRA + IRA2ROTH + SS - SD - CUT) + BASE
-    #   CG_TAX = SAVINGS * (1-(BASIS/(S_BAL*rate^YR))) * 20%
-    #   GOAL + EXTRA >= SAVING + IRA + ROTH + SS - TAX
+
+    # For a study that influenced this strategy see
+    # https://www.academyfinancial.org/resources/Documents/Proceedings/2009/3B-Coopersmith-Sumutka-Arvesen.pdf
+    integrality = [0] * nvars
+    bounds = [(0, None)] * nvars
     for year in range(S.numyr):
         i_mul = S.i_rate ** (year + S.workyr)
         n_fsave = n0+vper*year+0
@@ -223,6 +235,7 @@ def solve(args):
         n_taxtable = n0+vper*year+5
         n_state_stded = n_taxtable + len(S.taxtable)
         n_state_taxtable = n_state_stded + 1
+        n_cg_taxtable = n_state_taxtable + len(S.state_taxtable)
         n_taxes = n0+vper*year+vper-1
 
         if (args.spend is not None):
@@ -261,7 +274,8 @@ def solve(args):
             row[n_taxtable+idx] = -1
         AE += [row]
         be += [-S.taxed[year]]
-       
+
+
         # limit how much can be considered part of the state standard deduction
         row = [0] * nvars
         row[n_state_stded] = 1
@@ -288,17 +302,129 @@ def solve(args):
         AE += [row]
         be += [-S.taxed[year]]
 
+
+        for idx, (rate, low, high) in enumerate(S.cg_taxtable[0:-1]):
+            # limit how much can be put in each cg tax bracket
+
+            # how much does our agi take us over this bracket
+            # store this value in (cg2 - cg3), see below
+            row = [0] * nvars
+            row[n_fira] = 1
+            row[n_ira2roth] = 1
+            row[n_stded] = -1
+            row[n_cg_taxtable+idx*cg_vper+3] = 1
+            row[n_cg_taxtable+idx*cg_vper+2] = -1
+            AE += [row]
+            be += [low*i_mul - S.taxed[year]]
+
+            # the previous calc could have given a negative number
+            # force max(0, previous_calc) into cg2
+            # https://stackoverflow.com/questions/56050131/how-i-can-seperate-negative-and-positive-variables
+            bounds[n_cg_taxtable+idx*cg_vper+0] = (None, None)
+            bounds[n_cg_taxtable+idx*cg_vper+1] = (0, 1)
+            integrality[n_cg_taxtable+idx*cg_vper+1] = 1
+
+            row = [0] * nvars 
+            row[n_cg_taxtable+idx*cg_vper+0] = 1
+            row[n_cg_taxtable+idx*cg_vper+2] = -1
+            row[n_cg_taxtable+idx*cg_vper+3] = 1
+            AE += [row]
+            be += [0]
+
+            M = 5_000_000
+            row = [0] * nvars 
+            row[n_cg_taxtable+idx*cg_vper+0] = 1
+            A += [row]
+            b += [M]
+#            b_l += [-M]
+
+            row = [0] * nvars
+            row[n_cg_taxtable+idx*cg_vper+2] = 1
+            row[n_cg_taxtable+idx*cg_vper+1] = -M
+            A += [row]
+            b += [0]
+
+            row = [0] * nvars
+            row[n_cg_taxtable+idx*cg_vper+3] = 1
+            row[n_cg_taxtable+idx*cg_vper+1] = M
+            A += [row] 
+            b += [M]
+
+            # put size of this bracket in cg4
+            row = [0] * nvars
+            row[n_cg_taxtable+idx*cg_vper+4] = 1
+            AE += [row]
+            be += [(high-low) * i_mul]
+
+            # put the min(cg2, cg4) into cg7
+            # cg5 and cg6 are used as temporary variables
+            # https://www.fico.com/fico-xpress-optimization/docs/latest/mipform/dhtml/chap2s1.html?scroll=ssecminval
+            bounds[n_cg_taxtable+idx*cg_vper+5] = (0, 1)
+            bounds[n_cg_taxtable+idx*cg_vper+6] = (0, 1)
+            integrality[n_cg_taxtable+idx*cg_vper+5] = 1
+            integrality[n_cg_taxtable+idx*cg_vper+6] = 1
+
+            row = [0] * nvars
+            row[n_cg_taxtable+idx*cg_vper+7] = 1
+            row[n_cg_taxtable+idx*cg_vper+2] = -1
+            A += [row]
+            b += [0]
+
+            row = [0] * nvars
+            row[n_cg_taxtable+idx*cg_vper+7] = 1
+            row[n_cg_taxtable+idx*cg_vper+4] = -1
+            A += [row]
+            b += [0]
+
+            row = [0] * nvars
+            row[n_cg_taxtable+idx*cg_vper+5] = 1
+            row[n_cg_taxtable+idx*cg_vper+6] = 1
+            AE += [row]
+            be += [1]
+
+            row = [0] * nvars
+            row[n_cg_taxtable+idx*cg_vper+7] = -1
+            row[n_cg_taxtable+idx*cg_vper+2] = 1
+            row[n_cg_taxtable+idx*cg_vper+5] = M + M
+            A += [row]
+            b += [M + M]
+
+            row = [0] * nvars
+            row[n_cg_taxtable+idx*cg_vper+7] = -1
+            row[n_cg_taxtable+idx*cg_vper+4] = 1
+            row[n_cg_taxtable+idx*cg_vper+6] = M + M
+            A += [row]
+            b += [M + M]
+
+            # cg7 (part of bracket used by income) + cg8 (part of bracket used by cap gains)
+            # must be less than the size of bracket
+            row = [0] * nvars
+            row[n_cg_taxtable+idx*cg_vper+7] = 1
+            row[n_cg_taxtable+idx*cg_vper+8] = 1
+            A += [row]
+            b += [(high-low) * i_mul]
+
+        # the sum of the used cg tax brackets must equal basis*fsave
+        row = [0] * nvars
+        row[n_fsave] = basis
+        for idx in range(len(S.cg_taxtable)):
+            row[n_cg_taxtable+idx*cg_vper+8] = -1
+        AE += [row]
+        be += [0]
+
+
         # calc total taxes
         row = [0] * nvars
         row[n_taxes] = 1                    # this is where we will store total taxes
         if year + S.retireage < 59:         # ira penalty
             row[n_fira] = -0.1
-        row[n_fsave] = -basis * cg_tax
         row[n_froth] = -0
         for idx, (rate, low, high) in enumerate(S.taxtable):
             row[n_taxtable+idx] = -rate
         for idx, (rate, low, high) in enumerate(S.state_taxtable):
             row[n_state_taxtable+idx] = -rate
+        for idx, (rate, low, high) in enumerate(S.cg_taxtable):
+            row[n_cg_taxtable+idx*cg_vper+8] = -rate
         AE += [row]
         be += [0]
 
@@ -327,6 +453,7 @@ def solve(args):
     A += [row]
     b += [S.aftertax['bal'] * S.r_rate ** (S.workyr + S.numyr) + inc]
 
+
     # any years with income need to be positive in aftertax
     # for year in range(S.numyr):
     #     if S.income[year] == 0:
@@ -351,6 +478,7 @@ def solve(args):
     A += [row]
     b += [S.IRA['bal'] * S.r_rate ** (S.workyr + S.numyr)]
 
+
     # IRA balance at SEPP end needs to not touch SEPP money
     row = [0] * nvars
     for year in range(S.sepp_end):
@@ -361,6 +489,7 @@ def solve(args):
     row[1] = S.r_rate ** S.sepp_end
     A += [row]
     b += [S.IRA['bal'] * S.r_rate ** S.sepp_end]
+
 
     # before 59, Roth can only spend from contributions
     for year in range(min(S.numyr, 59-S.retireage)):
@@ -381,6 +510,7 @@ def solve(args):
             if age + 5 - S.retireage <= year:
                 contrib += amount
         b += [contrib]
+
 
     # after 59 all of Roth can be spent, but contributions need to age
     # 5 years and the balance each year needs to be positive
@@ -403,6 +533,7 @@ def solve(args):
         A += [row]
         # initial balance
         b += [S.roth['bal'] * S.r_rate ** (S.workyr + year)]
+
 
     # starting with age 70 the user must take RMD payments
     for year in range(max(0,70-S.retireage),S.numyr):
@@ -431,12 +562,22 @@ def solve(args):
 
     if args.verbose:
         print("Num vars: ", len(c))
-        print("Num contraints: ", len(b))
-    res = scipy.optimize.linprog(c, A_ub=A, b_ub=b, A_eq=AE, b_eq=be, method="highs-ipm",
-                                 options={"disp": args.verbose})
-    if res.success == False:
+        print("Num contraints A: ", len(A))
+        print("Num contraints b: ", len(b))
+        print("integrality: ", len(integrality))
+
+    res = scipy.optimize.linprog(c, A_ub=A, b_ub=b, A_eq=AE, b_eq=be,
+                                 method="highs",
+                                 bounds=bounds, 
+                                 integrality=integrality, 
+                                 options={"disp": args.verbose, "time_limit": 600})
+    if res.status > 1:
         print(res)
         exit(1)
+
+#    for i in range(vper):
+#        print(res.x[n0+0*vper+i], end="\t")
+    print(res.message)
 
     return res.x
 
