@@ -15,8 +15,6 @@ endage = 100		# stops at 99
 
 [taxes]
 state_rate = 3
-state_cg_rate = 0       # if you don't specify the state cap-gains tax rate
-                        # then it will default to the state_rate
 
 # The default tax rates in fplan are for MFJ in 2023.  
 # For Single filers in 2023, uncomment the taxrates and stded lines below.

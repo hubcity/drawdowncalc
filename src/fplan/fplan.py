@@ -56,29 +56,32 @@ class Data:
                             [462500, 35],
                             [693750, 37]]
         default_stded = 27700
+        default_state_taxrates = [[0, 0]]
+
         tmp_taxrates = default_taxrates
+        tmp_state_taxrates = default_state_taxrates
+
         if 'taxes' in d:
             tmp_taxrates = d['taxes'].get('taxrates', default_taxrates)
+            tmp_state_taxrates = d['taxes'].get('state_rate', default_state_taxrates)
+            if (type(tmp_state_taxrates) is not list):
+                tmp_state_taxrates = [[0, tmp_state_taxrates]]
             self.stded = d['taxes'].get('stded', default_stded)
-            self.state_tax = d['taxes'].get('state_rate', 0)
-            self.state_cg_tax = d['taxes'].get('state_cg_rate', self.state_tax)
+            self.state_stded = d['taxes'].get('state_stded', self.stded) 
         else:
             self.stded = default_stded
-            self.state_tax = 0
-            self.state_cg_tax = 0
-        # add fake level and switch to decimals
-        tmp_taxrates[:0] = [[0, 0]]
+            self.state_stded = default_stded
         self.taxrates = [[x,y/100.0] for (x,y) in tmp_taxrates]
         cutoffs = [x[0] for x in self.taxrates][1:] + [float('inf')]
         self.taxtable = list(map(lambda x, y: [x[1], x[0], y], self.taxrates, cutoffs))
+        self.state_taxrates = [[x,y/100.0] for (x,y) in tmp_state_taxrates]
+        cutoffs = [x[0] for x in self.state_taxrates][1:] + [float('inf')]
+        self.state_taxtable = list(map(lambda x, y: [x[1], x[0], y], self.state_taxrates, cutoffs))
 
-        self.state_tax = self.state_tax / 100.0
-        self.state_cg_tax = self.state_cg_tax / 100.0
 
         # add columns for the standard deduction, tax brackets, 
-        # state bracket (one for now),
-        # and total taxes (for debugging)
-        vper += 1 + len(self.taxtable) + 1 + 1
+        # state std deduction, state bracket and total taxes
+        vper += 1 + len(self.taxtable) + 1 + len(self.state_taxtable) + 1
 
         if 'prep' in d:
             self.workyr = d['prep']['workyears']
@@ -207,7 +210,8 @@ def solve(args):
         n_ira2roth = n0+vper*year+3
         n_stded = n0+vper*year+4
         n_taxtable = n0+vper*year+5
-        n_state = n0+vper*year+5 + len(S.taxtable)
+        n_state_stded = n_taxtable + len(S.taxtable)
+        n_state_taxtable = n_state_stded + 1
         n_taxes = n0+vper*year+vper-1
 
         # aftertax basis
@@ -243,13 +247,29 @@ def solve(args):
         AE += [row]
         be += [-S.taxed[year]]
        
+        # limit how much can be considered part of the state standard deduction
+        row = [0] * nvars
+        row[n_state_stded] = 1
+        A += [row]
+        b += [S.state_stded * i_mul]
+
+        for idx, (rate, low, high) in enumerate(S.state_taxtable[0:-1]):
+            # limit how much can be put in each state tax bracket
+            row = [0] * nvars
+            row[n_state_taxtable+idx] = 1
+            A += [row]
+            b += [(high - low) * i_mul]
+
         # the sum of everything in the std deduction + state tax brackets must 
-        # be equal to fira + ira2roth + taxed_extra
+        # be equal to fira + ira2roth + fsave*basis + taxed_extra
+        # Note: capital gains are treated as income for state taxes
         row = [0] * nvars
         row[n_fira] = 1
         row[n_ira2roth] = 1
-        row[n_stded] = -1
-        row[n_state] = -1
+        row[n_fsave] = basis
+        row[n_state_stded] = -1
+        for idx in range(len(S.state_taxtable)):
+            row[n_state_taxtable+idx] = -1
         AE += [row]
         be += [-S.taxed[year]]
 
@@ -258,12 +278,12 @@ def solve(args):
         row[n_taxes] = 1                    # this is where we will store total taxes
         if year + S.retireage < 59:         # ira penalty
             row[n_fira] = -0.1
-        row[n_fsave] = -basis * (cg_tax + S.state_cg_tax)
+        row[n_fsave] = -basis * cg_tax
         row[n_froth] = -0
-        row[n_stded] = -0
         for idx, (rate, low, high) in enumerate(S.taxtable):
             row[n_taxtable+idx] = -rate
-        row[n_state] = -S.state_tax
+        for idx, (rate, low, high) in enumerate(S.state_taxtable):
+            row[n_state_taxtable+idx] = -rate
         AE += [row]
         be += [0]
 
@@ -447,11 +467,22 @@ def print_ascii(res):
             sepp_spend = sepp/S.sepp_ratio
         else:
             sepp_spend = 0
+
         inc = fira + ira2roth - S.stded*i_mul + S.taxed[year] + sepp_spend
-
+        basis = 1
+        if S.aftertax['basis'] > 0:
+            basis = 1 - (S.aftertax['basis'] /
+                         (S.aftertax['bal']*S.r_rate**(year + S.workyr)))
+        state_inc = fira + ira2roth - S.state_stded*i_mul + S.taxed[year] + basis*fsavings + sepp_spend
         tax = res[n0+year*vper+vper-1]
-        rate = next(r for (r, l, h) in S.taxtable if (inc <= h*i_mul)) + S.state_tax
 
+        fed_rate = 0
+        if (inc > 0):
+            fed_rate = next(r for (r, l, h) in S.taxtable if (inc <= h*i_mul))
+        state_rate = 0
+        if (state_inc > 0):
+            state_rate = next(r for (r, l, h) in S.state_taxtable if (state_inc <= h*i_mul))
+        rate = fed_rate + state_rate
         #if S.income[year]:
         #    savings += S.income[year]
 
