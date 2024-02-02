@@ -8,6 +8,7 @@ except ModuleNotFoundError:
     import tomli as tomllib
 import scipy.optimize
 
+
 # Required Minimal Distributions from IRA starting with age 70
 RMD = [27.4, 26.5, 25.6, 24.7, 23.8, 22.9, 22.0, 21.2, 20.3, 19.5,  # age 70-79
        18.7, 17.9, 17.1, 16.3, 15.5, 14.8, 14.1, 13.4, 12.7, 12.0,  # age 80-89
@@ -36,6 +37,7 @@ def agelist(str):
 
 class Data:
     def load_file(self, file):
+        global vper
         with open(file) as conffile:
             d = tomllib.loads(conffile.read())
         self.i_rate = 1 + d.get('inflation', 0) / 100       # inflation rate: 2.5 -> 1.025
@@ -67,8 +69,16 @@ class Data:
         # add fake level and switch to decimals
         tmp_taxrates[:0] = [[0, 0]]
         self.taxrates = [[x,y/100.0] for (x,y) in tmp_taxrates]
+        cutoffs = [x[0] for x in self.taxrates][1:] + [float('inf')]
+        self.taxtable = list(map(lambda x, y: [x[1], x[0], y], self.taxrates, cutoffs))
+
         self.state_tax = self.state_tax / 100.0
         self.state_cg_tax = self.state_cg_tax / 100.0
+
+        # add columns for the standard deduction, tax brackets, 
+        # state bracket (one for now),
+        # and total taxes (for debugging)
+        vper += 1 + len(self.taxtable) + 1 + 1
 
         if 'prep' in d:
             self.workyr = d['prep']['workyears']
@@ -145,8 +155,13 @@ def solve(args):
     c = [0] * nvars
     c[0] = -1
 
+    # put the <= constrtaints here
     A = []
     b = []
+
+    # put the equality constraints here
+    AE = []
+    be = []
 
     if not args.sepp:
         # force SEPP to zero
@@ -186,6 +201,14 @@ def solve(args):
     #   GOAL + EXTRA >= SAVING + IRA + ROTH + SS - TAX
     for year in range(S.numyr):
         i_mul = S.i_rate ** (year + S.workyr)
+        n_fsave = n0+vper*year+0
+        n_fira = n0+vper*year+1
+        n_froth = n0+vper*year+2
+        n_ira2roth = n0+vper*year+3
+        n_stded = n0+vper*year+4
+        n_taxtable = n0+vper*year+5
+        n_state = n0+vper*year+5 + len(S.taxtable)
+        n_taxes = n0+vper*year+vper-1
 
         # aftertax basis
         # XXX fix work contributions
@@ -195,42 +218,67 @@ def solve(args):
         else:
             basis = 1
 
-        (taxbase, last_cut, last_rate) = (0, 0, 0)
-        for (cut, rate) in S.taxrates:
-            if rate > 0:                             # if below fed std_ded, assumes tax 0%
-                rate += S.state_tax 
-            taxbase += (cut - last_cut) * last_rate * i_mul
-            (last_cut, last_rate) = (cut, rate)
-            base = taxbase
+
+        # limit how much can be considered part of the standard deduction
+        row = [0] * nvars
+        row[n_stded] = 1
+        A += [row]
+        b += [S.stded * i_mul]
+
+        for idx, (rate, low, high) in enumerate(S.taxtable[0:-1]):
+            # limit how much can be put in each tax bracket
             row = [0] * nvars
-            row[0] = i_mul                           # goal is positive
-
-            if year < S.sepp_end:
-                row[1] = (-1 + rate) * (1/S.sepp_ratio) # income from SEPP amount
-            cut *= i_mul
-            # aftertax withdrawal + capital gains tax
-            row[n0+vper*year+0] = -1 + basis * (cg_tax + S.state_cg_tax)
-
-            if year + S.retireage < 59:
-                row[n0+vper*year+1] = -0.9 + rate    # 10% penelty
-            else:
-                row[n0+vper*year+1] = -1 + rate      # IRA - tax
-
-            # XXX How to model 10% penelty for Roth before 59 other than
-            # contributions
-            row[n0+vper*year+2] = -1                 # Roth
-
-            row[n0+vper*year+3] = rate + 0.0001       # tax on Roth conversion
-                                                      # + 0.0001 hack so that conversions 
-                                                      # look slightly inferior to withdrawals
+            row[n_taxtable+idx] = 1
             A += [row]
+            b += [(high - low) * i_mul]
 
-            base -= S.income[year]                    # must spend all income this year (temp)
-            base += S.expenses[year]
-            base += S.taxed[year]*rate                # extra income is taxed
+        # the sum of everything in the std deduction + tax brackets must 
+        # be equal to fira + ira2roth + taxed_extra
+        row = [0] * nvars
+        row[n_fira] = 1
+        row[n_ira2roth] = 1
+        row[n_stded] = -1
+        for idx in range(len(S.taxtable)):
+            row[n_taxtable+idx] = -1
+        AE += [row]
+        be += [-S.taxed[year]]
+       
+        # the sum of everything in the std deduction + state tax brackets must 
+        # be equal to fira + ira2roth + taxed_extra
+        row = [0] * nvars
+        row[n_fira] = 1
+        row[n_ira2roth] = 1
+        row[n_stded] = -1
+        row[n_state] = -1
+        AE += [row]
+        be += [-S.taxed[year]]
 
-            # offset from having this taxrate from zero
-            b += [(cut + S.stded * i_mul) * rate - base]
+        # calc total taxes
+        row = [0] * nvars
+        row[n_taxes] = 1                    # this is where we will store total taxes
+        if year + S.retireage < 59:         # ira penalty
+            row[n_fira] = -0.1
+        row[n_fsave] = -basis * (cg_tax + S.state_cg_tax)
+        row[n_froth] = -0
+        row[n_stded] = -0
+        for idx, (rate, low, high) in enumerate(S.taxtable):
+            row[n_taxtable+idx] = -rate
+        row[n_state] = -S.state_tax
+        AE += [row]
+        be += [0]
+
+        # calc that everything withdrawn must equal spending money + total taxes
+        row = [0] * nvars
+        # spendable money
+        row[n_fsave] = 1
+        row[n_fira] = 1
+        row[n_froth] = 1
+        # spent money
+        row[0] -= i_mul                     # spending floor
+        row[n_taxes] = -1                   # taxes as computed earlier
+        AE += [row]
+        be += [-S.income[year] + S.expenses[year]]
+       
 
     # final balance for savings needs to be positive
     row = [0] * nvars
@@ -349,7 +397,7 @@ def solve(args):
     if args.verbose:
         print("Num vars: ", len(c))
         print("Num contraints: ", len(b))
-    res = scipy.optimize.linprog(c, A_ub=A, b_ub=b, method="highs-ipm",
+    res = scipy.optimize.linprog(c, A_ub=A, b_ub=b, A_eq=AE, b_eq=be, method="highs-ipm",
                                  options={"disp": args.verbose})
     if res.success == False:
         print(res)
@@ -385,7 +433,7 @@ def print_ascii(res):
         roth *= S.r_rate
 
     print((" age" + " %5s" * 12) %
-          ("save", "spend", "IRA", "fIRA", "SEPP", "Roth", "fRoth", "IRA2R",
+          ("save", "fsave", "IRA", "fIRA", "SEPP", "Roth", "fRoth", "IRA2R",
            "rate", "tax", "spend", "extra"))
     ttax = 0.0
     tspend = 0.0
@@ -401,43 +449,17 @@ def print_ascii(res):
             sepp_spend = 0
         inc = fira + ira2roth - S.stded*i_mul + S.taxed[year] + sepp_spend
 
+        tax = res[n0+year*vper+vper-1]
+        rate = next(r for (r, l, h) in S.taxtable if (inc <= h*i_mul)) + S.state_tax
+
         #if S.income[year]:
         #    savings += S.income[year]
 
-        (c, r, b) = (0, 0, 0)
-        if inc < 0:
-            inc = 0
-
-        (taxbase, last_cut, last_rate) = (b, c, r)
-        for (cut, rate) in S.taxrates:
-            if rate > 0:
-                rate += S.state_tax
-            taxbase += (cut - last_cut) * last_rate * i_mul
-            (last_cut, last_rate) = (cut, rate)
-            base = taxbase
-            cut *= i_mul
-            if inc <= cut:
-                break
-            c = cut
-            r = rate
-            b = base
-        (cut, rate, base) = (c, r, b)
-        tax = (inc - cut) * rate + base
-
-        # aftertax basis
-        if S.aftertax['basis'] > 0:
-            basis = 1 - (S.aftertax['basis'] /
-                         (S.aftertax['bal']*S.r_rate**(year + S.workyr)))
-        else:
-            basis = 1
-        tax += fsavings * basis * (cg_tax + S.state_cg_tax)
-        if S.retireage + year < 59:
-            tax += fira * 0.10
-        ttax += tax
         extra = S.expenses[year] - S.income[year]
         spending = fsavings + fira + froth - tax - extra + sepp_spend
 
-        tspend += spending + extra
+        ttax += tax / i_mul                     # totals in today's dollars
+        tspend += (spending + extra) / i_mul    # totals in today's dollars
         print((" %d:" + " %5.0f" * 12) %
               (year+S.retireage,
                savings/1000, fsavings/1000,
@@ -454,7 +476,8 @@ def print_ascii(res):
         roth *= S.r_rate
 
     print("\ntotal spending: %.0f" % tspend)
-    print("total tax: %.0f (%.1f%%)" % (ttax, 100*ttax/tspend))
+    print("total tax: %.0f (%.1f%%)" % (ttax, 100*ttax/(tspend+ttax)))
+
 
 def print_csv(res):
     print("spend goal,%d" % res[0])
@@ -462,7 +485,7 @@ def print_csv(res):
     print("ira,%d" % S.IRA['bal'])
     print("roth,%d" % S.roth['bal'])
 
-    print("age,spend,fIRA,fROTH,IRA2R,income,expense")
+    print("age,fsave,fIRA,fROTH,IRA2R,income,expense")
     for year in range(S.numyr):
         fsavings = res[n0+year*vper]
         fira = res[n0+year*vper+1]
@@ -485,12 +508,13 @@ def main():
     args = parser.parse_args()
 
     global S
+    global vper, n1
+    vper = 4        # variables per year (savings, ira, roth, ira2roth)
+    n1 = 2          # before-retire years start here
     S = Data()
     S.load_file(args.conffile)
 
-    global vper, n0, n1
-    vper = 4        # variables per year (savings, ira, roth, ira2roth)
-    n1 = 2          # before-retire years start here
+    global n0
     n0 = n1+S.workyr*vper   # post-retirement years start here
 
     res = solve(args)
