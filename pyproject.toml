@@ -18,7 +18,7 @@ classifiers = [
 ]
 dependencies = [
     'tomli; python_version < "3.11"',
-    'scipy'
+    'scipy >= 1.9.2'
 ]
 
 [project.scripts]
