@@ -153,10 +153,7 @@ class Data:
 #vars: money, per year(savings, ira, roth, ira2roth)  (193 vars)
 #all vars positive
 def solve(args):
-    # optimize this poly (we want to maximize the money we can spend)
     nvars = n1 + vper * (S.numyr + S.workyr)
-    c = [0] * nvars
-    c[0] = -1
 
     # put the <= constrtaints here
     A = []
@@ -165,6 +162,20 @@ def solve(args):
     # put the equality constraints here
     AE = []
     be = []
+
+    # optimize this poly
+    c = [0] * nvars
+    if (args.spend is None):
+        # maximize spending
+        c[0] = -1
+    else:
+        # set spending to a fixed value
+        # we'll minimize taxes later on
+        row = [0] * nvars 
+        row[0] = 1
+        AE += [row]
+        be += [float(args.spend)]
+        
 
     if not args.sepp:
         # force SEPP to zero
@@ -214,6 +225,10 @@ def solve(args):
         n_state_taxtable = n_state_stded + 1
         n_taxes = n0+vper*year+vper-1
 
+        if (args.spend is not None):
+            # spending is set so we'll minimize lifetime taxes in today's dollars
+            c[n_taxes] = 1 / i_mul 
+ 
         # aftertax basis
         # XXX fix work contributions
         if S.aftertax['basis'] > 0:
@@ -535,6 +550,8 @@ def main():
     parser.add_argument('--csv', action='store_true', help="Generate CSV outputs")
     parser.add_argument('--validate', action='store_true',
                         help="compare single run to separate runs")
+    parser.add_argument('--spend',
+                        help="Setting yearly spending will cause taxes to be minimized")
     parser.add_argument('conffile')
     args = parser.parse_args()
 
