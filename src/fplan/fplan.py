@@ -124,6 +124,7 @@ class Data:
         INC = [0] * self.numyr
         EXP = [0] * self.numyr
         TAX = [0] * self.numyr
+        STATE_TAX = [0] * self.numyr
 
         for k,v in S.get('expense', {}).items():
             for age in agelist(v['age']):
@@ -152,9 +153,15 @@ class Data:
                     INC[year] += amount
                     if v.get('tax'):
                         TAX[year] += amount
+                        if (v.get('state_tax') is None) or (v.get('state_tax')):
+                            STATE_TAX[year] += amount
+                    else:
+                        if v.get('state_tax'):
+                            STATE_TAX[year] += amount
         self.income = INC
         self.expenses = EXP
         self.taxed = TAX
+        self.state_taxed = STATE_TAX
 
 # Minimize: c^T * x
 # Subject to: A_ub * x <= b_ub
@@ -290,7 +297,7 @@ def solve(args):
             b += [(high - low) * i_mul]
 
         # the sum of everything in the std deduction + state tax brackets must 
-        # be equal to fira + ira2roth + fsave*basis + taxed_extra
+        # be equal to fira + ira2roth + fsave*basis + state_taxed_extra
         # Note: capital gains are treated as income for state taxes
         row = [0] * nvars
         row[n_fira] = 1
@@ -300,7 +307,7 @@ def solve(args):
         for idx in range(len(S.state_taxtable)):
             row[n_state_taxtable+idx] = -1
         AE += [row]
-        be += [-S.taxed[year]]
+        be += [-S.state_taxed[year]]
 
 
         for idx, (rate, low, high) in enumerate(S.cg_taxtable[0:-1]):
@@ -582,7 +589,7 @@ def solve(args):
         exit(1)
 
 #    for i in range(vper):
-#        print(res.x[n0+0*vper+i], end="\t")
+#        print("%i %f" % (i, res.x[n0+0*vper+i]))
     print(res.message)
 
     return res.x
@@ -635,7 +642,7 @@ def print_ascii(res):
         if S.aftertax['basis'] > 0:
             basis = 1 - (S.aftertax['basis'] /
                          (S.aftertax['bal']*S.r_rate**(year + S.workyr)))
-        state_inc = fira + ira2roth - S.state_stded*i_mul + S.taxed[year] + basis*fsavings + sepp_spend
+        state_inc = fira + ira2roth - S.state_stded*i_mul + S.state_taxed[year] + basis*fsavings + sepp_spend
         tax = res[n0+year*vper+vper-1]
 
         fed_rate = 0
