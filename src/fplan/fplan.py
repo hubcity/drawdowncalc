@@ -171,6 +171,19 @@ class Data:
 #all vars positive
 def solve(args):
     nvars = n1 + vper * (S.numyr + S.workyr)
+    fsave_offset = 0
+    fira_offset = fsave_offset + 1
+    froth_offset = fira_offset + 1
+    ira2roth_offset = froth_offset + 1
+    stded_offset = ira2roth_offset + 1
+    taxtable_offset = stded_offset + 1
+    state_stded_offset = taxtable_offset + len(S.taxtable)
+    state_taxtable_offset = state_stded_offset + 1
+    cg_taxtable_offset = state_taxtable_offset + len(S.state_taxtable)
+    save_offset = cg_taxtable_offset + len(S.cg_taxtable)*cg_vper
+    ira_offset = save_offset + 1
+    roth_offset = ira_offset + 1
+    taxes_offset = roth_offset + 1
 
     # put the <= constrtaints here
     A = []
@@ -204,10 +217,18 @@ def solve(args):
     # Work contributions don't exceed limits
     for year in range(S.workyr):
         # can't exceed maxsave per year
+        year_offset = n1+year*vper
+        n_fsave = year_offset + fsave_offset 
+        n_fira = year_offset + fira_offset 
+        n_froth = year_offset + froth_offset
+        n_save = year_offset + save_offset 
+        n_ira = year_offset + ira_offset 
+        n_roth = year_offset + roth_offset
+        
         row = [0] * nvars
-        row[n1+year*vper+0] = S.worktax
-        row[n1+year*vper+1] = 1
-        row[n1+year*vper+2] = S.worktax
+        row[n_fsave] = S.worktax
+        row[n_fira] = 1
+        row[n_froth] = S.worktax
         A += [row]
         if S.maxsave_inflation:
             b += [S.maxsave * S.i_rate ** year]
@@ -217,41 +238,41 @@ def solve(args):
 
         # max IRA per year
         row = [0] * nvars
-        row[n1+year*vper+1] = 1
+        row[n_fira] = 1
         A += [row]
         b += [S.IRA['maxcontrib'] * S.i_rate ** year]
 
         # max Roth per year
         row = [0] * nvars
-        row[n1+year*vper+2] = 1
+        row[n_froth] = 1
         A += [row]
         b += [S.roth['maxcontrib'] * S.i_rate ** year]
 
-         # calc running total beginning of year saving balance
+         # calc running total beginning-of-year saving balance
         row = [0] * nvars
-        row[n1+vper*year+vper-4] = 1
+        row[n_save] = 1
         for y in range(year):
-            row[n1+vper*y+0] = -(S.r_rate ** (year - y))
+            row[n1+vper*y+fsave_offset] = -(S.r_rate ** (year - y))
         AE += [row]
         be += [S.aftertax['bal'] * S.r_rate ** (year)]
 
-        # calc running total beginning of year ira balance
+        # calc running total beginning-of-year ira balance
         row = [0] * nvars
-        row[n1+vper*year+vper-3] = 1
+        row[n_ira] = 1
         for y in range(year):
-            row[n1+vper*y+1] = -(S.r_rate ** (year - y))
+            row[n1+vper*y+fira_offset] = -(S.r_rate ** (year - y))
             # current version never does working year ira2roth conversions
-            # row[n1+vper*y+3] = (S.r_rate ** (year - y))
+            # row[n1+vper*y+ira2roth_offset] = (S.r_rate ** (year - y))
         AE += [row]
         be += [S.IRA['bal'] * S.r_rate ** (year)]
 
-        # calc running total beginning of year roth balance
+        # calc running total beginning-of-year roth balance
         row = [0] * nvars
-        row[n1+vper*year+vper-2] = 1
+        row[n_roth] = 1
         for y in range(year):
-            row[n1+vper*y+2] = -(S.r_rate ** (year - y))
+            row[n1+vper*y+froth_offset] = -(S.r_rate ** (year - y))
             # current version never does working year ira2roth conversions            
-            # row[n1+vper*y+3] = -(S.r_rate ** (year - y))
+            # row[n1+vper*y+ira2roth_offset] = -(S.r_rate ** (year - y))
         AE += [row]
         be += [S.roth['bal'] * S.r_rate ** (year)]
        
@@ -263,19 +284,20 @@ def solve(args):
     bounds = [(0, None)] * nvars
     for year in range(S.numyr):
         i_mul = S.i_rate ** (year + S.workyr)
-        n_fsave = n0+vper*year
-        n_fira = n_fsave + 1
-        n_froth = n_fira + 1
-        n_ira2roth = n_froth + 1
-        n_stded = n_ira2roth + 1
-        n_taxtable = n_stded + 1
-        n_state_stded = n_taxtable + len(S.taxtable)
-        n_state_taxtable = n_state_stded + 1
-        n_cg_taxtable = n_state_taxtable + len(S.state_taxtable)
-        n_save = n_cg_taxtable + len(S.cg_taxtable)*cg_vper
-        n_ira = n_save + 1
-        n_roth = n_ira + 1
-        n_taxes = n0+vper*year+vper-1
+        year_offset = n0+vper*year
+        n_fsave = year_offset + fsave_offset
+        n_fira = year_offset + fira_offset
+        n_froth = year_offset + froth_offset
+        n_ira2roth = year_offset + ira2roth_offset
+        n_stded = year_offset + stded_offset
+        n_taxtable = year_offset + taxtable_offset
+        n_state_stded = year_offset + state_stded_offset
+        n_state_taxtable = year_offset + state_taxtable_offset
+        n_cg_taxtable = year_offset + cg_taxtable_offset
+        n_save = year_offset + save_offset
+        n_ira = year_offset + ira_offset
+        n_roth = year_offset + roth_offset
+        n_taxes = year_offset + taxes_offset
 
         if (args.spend is not None):
             # spending is set so we'll minimize lifetime taxes in today's dollars
@@ -483,39 +505,39 @@ def solve(args):
         AE += [row]
         be += [-S.income[year] + S.expenses[year]]
 
-        # calc running total beginning of year saving balance
+        # calc running total beginning-of-year saving balance
         row = [0] * nvars
         row[n_save] = 1
         for y in range(S.workyr):
-            row[n1+vper*y+0] = -(S.r_rate ** (year + S.workyr - y))
+            row[n1+vper*y+fsave_offset] = -(S.r_rate ** (year + S.workyr - y))
         for y in range(year):
-            row[n0+vper*y+0] = S.r_rate ** (year - y)
+            row[n0+vper*y+fsave_offset] = S.r_rate ** (year - y)
         AE += [row]
         be += [S.aftertax['bal'] * S.r_rate ** (S.workyr + year)]
 
-        # calc running total beginning of year ira balance
+        # calc running total beginning-of-year ira balance
         row = [0] * nvars
         row[n_ira] = 1
         for y in range(S.workyr):
-            row[n1+vper*y+1] = -(S.r_rate ** (year + S.workyr - y))
+            row[n1+vper*y+fira_offset] = -(S.r_rate ** (year + S.workyr - y))
             # current version never does working year ira2roth conversions
-            # row[n1+vper*y+3] = (S.r_rate ** (year + S.workyr - y))
+            # row[n1+vper*y+ira2roth_offset] = (S.r_rate ** (year + S.workyr - y))
         for y in range(year):
-            row[n0+vper*y+1] = S.r_rate ** (year - y)
-            row[n0+vper*y+3] = S.r_rate ** (year - y)
+            row[n0+vper*y+fira_offset] = S.r_rate ** (year - y)
+            row[n0+vper*y+ira2roth_offset] = S.r_rate ** (year - y)
         AE += [row]
         be += [S.IRA['bal'] * S.r_rate ** (S.workyr + year)]
 
-        # calc running total beginning of year roth balance
+        # calc running total beginning-of-year roth balance
         row = [0] * nvars
         row[n_roth] = 1
         for y in range(S.workyr):
-            row[n1+vper*y+2] = -(S.r_rate ** (year + S.workyr - y))
+            row[n1+vper*y+froth_offset] = -(S.r_rate ** (year + S.workyr - y))
             # current version never does working year ira2roth conversions            
-            # row[n1+vper*y+3] = -(S.r_rate ** (year + S.workyr - y))
+            # row[n1+vper*y+ira2roth_offset] = -(S.r_rate ** (year + S.workyr - y))
         for y in range(year):
-            row[n0+vper*y+2] = S.r_rate ** (year - y)
-            row[n0+vper*y+3] = -(S.r_rate ** (year - y))
+            row[n0+vper*y+froth_offset] = S.r_rate ** (year - y)
+            row[n0+vper*y+ira2roth_offset] = -(S.r_rate ** (year - y))
         AE += [row]
         be += [S.roth['bal'] * S.r_rate ** (S.workyr + year)]
 
@@ -525,11 +547,11 @@ def solve(args):
     row = [0] * nvars
     inc = 0
     for year in range(S.numyr):
-        row[n0+vper*year+0] = S.r_rate ** (S.numyr - year)
+        row[n0+vper*year+fsave_offset] = S.r_rate ** (S.numyr - year)
         #if S.income[year] > 0:
         #    inc += S.income[year] * S.r_rate ** (S.numyr - year)
     for year in range(S.workyr):
-        row[n1+vper*year+0] = -(S.r_rate ** (S.numyr + S.workyr - year))
+        row[n1+vper*year+fsave_offset] = -(S.r_rate ** (S.numyr + S.workyr - year))
     A += [row]
     b += [S.aftertax['bal'] * S.r_rate ** (S.workyr + S.numyr) + inc]
 
@@ -549,12 +571,12 @@ def solve(args):
     # final balance for IRA needs to be positive
     row = [0] * nvars
     for year in range(S.numyr):
-        row[n0+vper*year+1] = S.r_rate ** (S.numyr - year)
-        row[n0+vper*year+3] = S.r_rate ** (S.numyr - year)
+        row[n0+vper*year+fira_offset] = S.r_rate ** (S.numyr - year)
+        row[n0+vper*year+ira2roth_offset] = S.r_rate ** (S.numyr - year)
         if year < S.sepp_end:
             row[1] += (1/S.sepp_ratio) * S.r_rate ** (S.numyr - year)
     for year in range(S.workyr):
-        row[n1+vper*year+1] = -(S.r_rate ** (S.numyr + S.workyr - year))
+        row[n1+vper*year+fira_offset] = -(S.r_rate ** (S.numyr + S.workyr - year))
     A += [row]
     b += [S.IRA['bal'] * S.r_rate ** (S.workyr + S.numyr)]
 
@@ -562,10 +584,10 @@ def solve(args):
     # IRA balance at SEPP end needs to not touch SEPP money
     row = [0] * nvars
     for year in range(S.sepp_end):
-        row[n0+vper*year+1] = S.r_rate ** (S.sepp_end - year)
-        row[n0+vper*year+3] = S.r_rate ** (S.sepp_end - year)
+        row[n0+vper*year+fira_offset] = S.r_rate ** (S.sepp_end - year)
+        row[n0+vper*year+ira2roth_offset] = S.r_rate ** (S.sepp_end - year)
     for year in range(S.workyr):
-        row[n1+vper*year+1] = -(S.r_rate ** (S.sepp_end + S.workyr - year))
+        row[n1+vper*year+fira_offset] = -(S.r_rate ** (S.sepp_end + S.workyr - year))
     row[1] = S.r_rate ** S.sepp_end
     A += [row]
     b += [S.IRA['bal'] * S.r_rate ** S.sepp_end]
@@ -575,13 +597,13 @@ def solve(args):
     for year in range(min(S.numyr, 59-S.retireage)):
         row = [0] * nvars
         for y in range(0, year-4):
-            row[n0+vper*y+3] = -1
+            row[n0+vper*y+ira2roth_offset] = -1
         for y in range(year+1):
-            row[n0+vper*y+2] = 1
+            row[n0+vper*y+froth_offset] = 1
 
         # include contributions while working
         for y in range(min(S.workyr, S.workyr-4+year)):
-            row[n1+vper*y+2] = -1
+            row[n1+vper*y+froth_offset] = -1
 
         A += [row]
         # only see initial balance after it has aged
@@ -599,16 +621,16 @@ def solve(args):
 
         # remove previous withdrawls
         for y in range(year):
-            row[n0+vper*y+2] = S.r_rate ** (year - y)
+            row[n0+vper*y+froth_offset] = S.r_rate ** (year - y)
 
         # add previous conversions, but we can only see things
         # converted more than 5 years ago
         for y in range(year-5):
-            row[n0+vper*y+3] = -S.r_rate ** (year - y)
+            row[n0+vper*y+ira2roth_offset] = -S.r_rate ** (year - y)
 
         # add contributions from work period
         for y in range(S.workyr):
-            row[n1+vper*y+2] = -S.r_rate ** (S.workyr + year - y)
+            row[n1+vper*y+froth_offset] = -S.r_rate ** (S.workyr + year - y)
 
         A += [row]
         # initial balance
@@ -624,18 +646,18 @@ def solve(args):
         # the gains from the initial balance minus any withdraws gives
         # the current balance.
         for y in range(year):
-            row[n0+vper*y+1] = -(S.r_rate ** (year - y))
-            row[n0+vper*y+3] = -(S.r_rate ** (year - y))
+            row[n0+vper*y+fira_offset] = -(S.r_rate ** (year - y))
+            row[n0+vper*y+ira2roth_offset] = -(S.r_rate ** (year - y))
             if year < S.sepp_end:
                 row[1] -= (1/S.sepp_ratio) * S.r_rate ** (year - y)
 
         # include deposits during work years
         for y in range(S.workyr):
-            row[n1+vper*y+1] = S.r_rate ** (S.workyr + year - y)
+            row[n1+vper*y+fira_offset] = S.r_rate ** (S.workyr + year - y)
 
         # this year's withdraw times the RMD factor needs to be more than
         # the balance
-        row[n0+vper*year+1] = -rmd
+        row[n0+vper*year+fira_offset] = -rmd
 
         A += [row]
         b += [-(S.IRA['bal'] * S.r_rate ** (S.workyr + year))]
