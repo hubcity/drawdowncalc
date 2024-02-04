@@ -86,10 +86,12 @@ class Data:
 
 
         # add columns for the standard deduction, tax brackets, 
-        # state std deduction, state bracket, cg brackets(xN) and total taxes
+        # state std deduction, state bracket, cg brackets(xN),
+        # running account totals and total taxes
         global cg_vper 
         cg_vper = 9
-        vper += 1 + len(self.taxtable) + 1 + len(self.state_taxtable) + cg_vper*len(self.cg_taxtable) + 1
+        vper += 1 + len(self.taxtable) + 1 + len(self.state_taxtable) + \
+            cg_vper*len(self.cg_taxtable) + 3 + 1
 
         if 'prep' in d:
             self.workyr = d['prep']['workyears']
@@ -213,19 +215,46 @@ def solve(args):
         else:
             b += [S.maxsave]
 
-
         # max IRA per year
         row = [0] * nvars
         row[n1+year*vper+1] = 1
         A += [row]
         b += [S.IRA['maxcontrib'] * S.i_rate ** year]
 
-
         # max Roth per year
         row = [0] * nvars
         row[n1+year*vper+2] = 1
         A += [row]
         b += [S.roth['maxcontrib'] * S.i_rate ** year]
+
+         # calc running total beginning of year saving balance
+        row = [0] * nvars
+        row[n1+vper*year+vper-4] = 1
+        for y in range(year):
+            row[n1+vper*y+0] = -(S.r_rate ** (year - y))
+        AE += [row]
+        be += [S.aftertax['bal'] * S.r_rate ** (year)]
+
+        # calc running total beginning of year ira balance
+        row = [0] * nvars
+        row[n1+vper*year+vper-3] = 1
+        for y in range(year):
+            row[n1+vper*y+1] = -(S.r_rate ** (year - y))
+            # current version never does working year ira2roth conversions
+            # row[n1+vper*y+3] = (S.r_rate ** (year - y))
+        AE += [row]
+        be += [S.IRA['bal'] * S.r_rate ** (year)]
+
+        # calc running total beginning of year roth balance
+        row = [0] * nvars
+        row[n1+vper*year+vper-2] = 1
+        for y in range(year):
+            row[n1+vper*y+2] = -(S.r_rate ** (year - y))
+            # current version never does working year ira2roth conversions            
+            # row[n1+vper*y+3] = -(S.r_rate ** (year - y))
+        AE += [row]
+        be += [S.roth['bal'] * S.r_rate ** (year)]
+       
 
 
     # For a study that influenced this strategy see
@@ -234,15 +263,18 @@ def solve(args):
     bounds = [(0, None)] * nvars
     for year in range(S.numyr):
         i_mul = S.i_rate ** (year + S.workyr)
-        n_fsave = n0+vper*year+0
-        n_fira = n0+vper*year+1
-        n_froth = n0+vper*year+2
-        n_ira2roth = n0+vper*year+3
-        n_stded = n0+vper*year+4
-        n_taxtable = n0+vper*year+5
+        n_fsave = n0+vper*year
+        n_fira = n_fsave + 1
+        n_froth = n_fira + 1
+        n_ira2roth = n_froth + 1
+        n_stded = n_ira2roth + 1
+        n_taxtable = n_stded + 1
         n_state_stded = n_taxtable + len(S.taxtable)
         n_state_taxtable = n_state_stded + 1
         n_cg_taxtable = n_state_taxtable + len(S.state_taxtable)
+        n_save = n_cg_taxtable + len(S.cg_taxtable)*cg_vper
+        n_ira = n_save + 1
+        n_roth = n_ira + 1
         n_taxes = n0+vper*year+vper-1
 
         if (args.spend is not None):
@@ -296,7 +328,7 @@ def solve(args):
             A += [row]
             b += [(high - low) * i_mul]
 
-        # the sum of everything in the std deduction + state tax brackets must 
+        # the sum of everything in the state std deduction + state tax brackets must 
         # be equal to fira + ira2roth + fsave*basis + state_taxed_extra
         # Note: capital gains are treated as income for state taxes
         row = [0] * nvars
@@ -450,7 +482,44 @@ def solve(args):
         row[n_taxes] = -1                   # taxes as computed earlier
         AE += [row]
         be += [-S.income[year] + S.expenses[year]]
-       
+
+        # calc running total beginning of year saving balance
+        row = [0] * nvars
+        row[n_save] = 1
+        for y in range(S.workyr):
+            row[n1+vper*y+0] = -(S.r_rate ** (year + S.workyr - y))
+        for y in range(year):
+            row[n0+vper*y+0] = S.r_rate ** (year - y)
+        AE += [row]
+        be += [S.aftertax['bal'] * S.r_rate ** (S.workyr + year)]
+
+        # calc running total beginning of year ira balance
+        row = [0] * nvars
+        row[n_ira] = 1
+        for y in range(S.workyr):
+            row[n1+vper*y+1] = -(S.r_rate ** (year + S.workyr - y))
+            # current version never does working year ira2roth conversions
+            # row[n1+vper*y+3] = (S.r_rate ** (year + S.workyr - y))
+        for y in range(year):
+            row[n0+vper*y+1] = S.r_rate ** (year - y)
+            row[n0+vper*y+3] = S.r_rate ** (year - y)
+        AE += [row]
+        be += [S.IRA['bal'] * S.r_rate ** (S.workyr + year)]
+
+        # calc running total beginning of year roth balance
+        row = [0] * nvars
+        row[n_roth] = 1
+        for y in range(S.workyr):
+            row[n1+vper*y+2] = -(S.r_rate ** (year + S.workyr - y))
+            # current version never does working year ira2roth conversions            
+            # row[n1+vper*y+3] = -(S.r_rate ** (year + S.workyr - y))
+        for y in range(year):
+            row[n0+vper*y+2] = S.r_rate ** (year - y)
+            row[n0+vper*y+3] = -(S.r_rate ** (year - y))
+        AE += [row]
+        be += [S.roth['bal'] * S.r_rate ** (S.workyr + year)]
+
+      
 
     # final balance for savings needs to be positive
     row = [0] * nvars
@@ -582,7 +651,7 @@ def solve(args):
                                  bounds=bounds, 
                                  integrality=integrality, 
                                  options={'disp': args.verbose, 
-                                          'time_limit': 600,
+                                          'time_limit': 300,
                                           'presolve': args.spend is None})
     if res.status > 1:
         print(res)
@@ -599,13 +668,13 @@ def print_ascii(res):
     sepp = 100*int(res[1]/100)
     print("SEPP amount = ", sepp, sepp / S.sepp_ratio)
     print()
-    savings = S.aftertax['bal']
-    ira = S.IRA['bal']
-    roth = S.roth['bal']
     if S.workyr > 0:
         print((" age" + " %5s" * 6) %
               ("save", "tSAVE", "IRA", "tIRA", "Roth", "tRoth"))
     for year in range(S.workyr):
+        savings = res[n1+year*vper+vper-4]
+        ira = res[n1+year*vper+vper-3]
+        roth = res[n1+year*vper+vper-2]
         fsavings = res[n1+year*vper]
         fira = res[n1+year*vper+1]
         froth = res[n1+year*vper+2]
@@ -614,12 +683,6 @@ def print_ascii(res):
                savings/1000, fsavings/1000,
                ira/1000, fira/1000,
                roth/1000, froth/1000))
-        savings += fsavings
-        savings *= S.r_rate
-        ira += fira
-        ira *= S.r_rate
-        roth += froth
-        roth *= S.r_rate
 
     print((" age" + " %5s" * 12) %
           ("save", "fsave", "IRA", "fIRA", "SEPP", "Roth", "fRoth", "IRA2R",
@@ -636,6 +699,9 @@ def print_ascii(res):
             sepp_spend = sepp/S.sepp_ratio
         else:
             sepp_spend = 0
+        savings = res[n0+year*vper+vper-4]
+        ira = res[n0+year*vper+vper-3]
+        roth = res[n0+year*vper+vper-2]
 
         inc = fira + ira2roth - S.stded*i_mul + S.taxed[year] + sepp_spend
         basis = 1
@@ -660,20 +726,15 @@ def print_ascii(res):
 
         ttax += tax / i_mul                     # totals in today's dollars
         tspend += (spending + extra) / i_mul    # totals in today's dollars
+        div_by = 1000
         print((" %d:" + " %5.0f" * 12) %
               (year+S.retireage,
-               savings/1000, fsavings/1000,
-               ira/1000, fira/1000, sepp_spend/1000,
-               roth/1000, froth/1000, ira2roth/1000,
-               rate * 100, tax/1000, spending/1000, extra/1000))
+               savings/div_by, fsavings/div_by,
+               ira/div_by, fira/div_by, sepp_spend/div_by,
+               roth/div_by, froth/div_by, ira2roth/div_by,
+               rate * 100, tax/div_by, spending/div_by, 
+               extra/div_by))
 
-        savings -= fsavings
-        savings *= S.r_rate
-        ira -= fira + sepp_spend + ira2roth
-        ira *= S.r_rate
-        roth -= froth
-        roth += ira2roth
-        roth *= S.r_rate
 
     print("\ntotal spending: %.0f" % tspend)
     print("total tax: %.0f (%.1f%%)" % (ttax, 100*ttax/(tspend+ttax)))
