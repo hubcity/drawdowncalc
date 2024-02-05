@@ -207,7 +207,16 @@ def solve(args):
         row[0] = -1
         A += [row]
         b += [-1 * float(args.spend)]
-        
+    
+    if (args.roth is not None):
+        # set the final roth value
+        i_mul = S.i_rate ** S.numyr
+        row = [0] * nvars
+        row[n0+(S.numyr-1)*vper+roth_offset] = -S.r_rate
+        row[n0+(S.numyr-1)*vper+ira2roth_offset] = -S.r_rate
+        row[n0+(S.numyr-1)*vper+froth_offset] = S.r_rate
+        A += [row]
+        b += [-i_mul * float(args.roth)]
 
     if not args.sepp:
         # force SEPP to zero
@@ -684,7 +693,14 @@ def solve(args):
 #    for i in range(vper):
 #        print("%i %f" % (i, res.x[n0+0*vper+i]))
     print(res.message)
-
+    if (args.roth is not None):
+        i_mul = S.i_rate ** S.numyr
+        roth_value = res.x[n0+(S.numyr-1)*vper+roth_offset] 
+        roth_value += res.x[n0+(S.numyr-1)*vper+ira2roth_offset]
+        roth_value -= res.x[n0+(S.numyr-1)*vper+froth_offset]
+        roth_value *= S.r_rate
+        print("The ending value, including final year investment returns, of your Roth account will be %.0f" % roth_value)
+        print("That is equivalent to %.0f in today's dollars" % (roth_value / i_mul))
     return res.x
 
 def print_ascii(res):
@@ -789,8 +805,11 @@ def main():
     parser.add_argument('--csv', action='store_true', help="Generate CSV outputs")
     parser.add_argument('--validate', action='store_true',
                         help="compare single run to separate runs")
-    parser.add_argument('--spend',
+    group = parser.add_mutually_exclusive_group()
+    group.add_argument('--spend',
                         help="Setting yearly spending will cause taxes to be minimized")
+    group.add_argument('--roth',
+                       help="Specify the total that should be left in the Roth account")
     parser.add_argument('conffile')
     args = parser.parse_args()
 
