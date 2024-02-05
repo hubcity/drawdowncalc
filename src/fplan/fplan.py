@@ -171,6 +171,8 @@ class Data:
 #all vars positive
 def solve(args):
     nvars = n1 + vper * (S.numyr + S.workyr)
+    global fsave_offset, fira_offset, froth_offset, ira2roth_offset
+    global save_offset, ira_offset, roth_offset, taxes_offset
     fsave_offset = 0
     fira_offset = fsave_offset + 1
     froth_offset = fira_offset + 1
@@ -694,12 +696,12 @@ def print_ascii(res):
         print((" age" + " %5s" * 6) %
               ("save", "tSAVE", "IRA", "tIRA", "Roth", "tRoth"))
     for year in range(S.workyr):
-        savings = res[n1+year*vper+vper-4]
-        ira = res[n1+year*vper+vper-3]
-        roth = res[n1+year*vper+vper-2]
-        fsavings = res[n1+year*vper]
-        fira = res[n1+year*vper+1]
-        froth = res[n1+year*vper+2]
+        savings = res[n1+year*vper+save_offset]
+        ira = res[n1+year*vper+ira_offset]
+        roth = res[n1+year*vper+roth_offset]
+        fsavings = res[n1+year*vper+fsave_offset]
+        fira = res[n1+year*vper+fira_offset]
+        froth = res[n1+year*vper+froth_offset]
         print((" %d:" + " %5.0f" * 6) %
               (year+S.startage,
                savings/1000, fsavings/1000,
@@ -713,17 +715,17 @@ def print_ascii(res):
     tspend = 0.0
     for year in range(S.numyr):
         i_mul = S.i_rate ** (year + S.workyr)
-        fsavings = res[n0+year*vper]
-        fira = res[n0+year*vper+1]
-        froth = res[n0+year*vper+2]
-        ira2roth = res[n0+year*vper+3]
+        fsavings = res[n0+year*vper+fsave_offset]
+        fira = res[n0+year*vper+fira_offset]
+        froth = res[n0+year*vper+froth_offset]
+        ira2roth = res[n0+year*vper+ira2roth_offset]
         if year < S.sepp_end:
             sepp_spend = sepp/S.sepp_ratio
         else:
             sepp_spend = 0
-        savings = res[n0+year*vper+vper-4]
-        ira = res[n0+year*vper+vper-3]
-        roth = res[n0+year*vper+vper-2]
+        savings = res[n0+year*vper+save_offset]
+        ira = res[n0+year*vper+ira_offset]
+        roth = res[n0+year*vper+roth_offset]
 
         inc = fira + ira2roth - S.stded*i_mul + S.taxed[year] + sepp_spend
         basis = 1
@@ -731,7 +733,7 @@ def print_ascii(res):
             basis = 1 - (S.aftertax['basis'] /
                          (S.aftertax['bal']*S.r_rate**(year + S.workyr)))
         state_inc = fira + ira2roth - S.state_stded*i_mul + S.state_taxed[year] + basis*fsavings + sepp_spend
-        tax = res[n0+year*vper+vper-1]
+        tax = res[n0+year*vper+taxes_offset]
 
         fed_rate = 0
         if (inc > 0):
@@ -770,10 +772,10 @@ def print_csv(res):
 
     print("age,fsave,fIRA,fROTH,IRA2R,income,expense")
     for year in range(S.numyr):
-        fsavings = res[n0+year*vper]
-        fira = res[n0+year*vper+1]
-        froth = res[n0+year*vper+2]
-        ira2roth = res[n0+year*vper+3]
+        fsavings = res[n0+year*vper+fsave_offset]
+        fira = res[n0+year*vper+fira_offset]
+        froth = res[n0+year*vper+froth_offset]
+        ira2roth = res[n0+year*vper+ira2roth_offset]
         print(("%d," * 6 + "%d") % (year+S.retireage,fsavings,fira,froth,ira2roth,
                                     S.income[year],S.expenses[year]))
 
