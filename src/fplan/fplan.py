@@ -87,11 +87,11 @@ class Data:
 
         # add columns for the standard deduction, tax brackets, 
         # state std deduction, state bracket, cg brackets(xN),
-        # running account totals and total taxes
+        # running account totals, total taxes and yearly cap gains dist.
         global cg_vper 
         cg_vper = 9
         vper += 1 + len(self.taxtable) + 1 + len(self.state_taxtable) + \
-            cg_vper*len(self.cg_taxtable) + 3 + 1
+            cg_vper*len(self.cg_taxtable) + 3 + 1 + 1
 
         if 'prep' in d:
             self.workyr = d['prep']['workyears']
@@ -106,6 +106,9 @@ class Data:
         self.aftertax = d.get('aftertax', {'bal': 0})
         if 'basis' not in self.aftertax:
             self.aftertax['basis'] = 0
+        if 'distributions' not in self.aftertax:
+            self.aftertax['distributions'] = 0.0
+        self.aftertax['distributions'] *= 0.01
 
         self.IRA = d.get('IRA', {'bal': 0})
         if 'maxcontrib' not in self.IRA:
@@ -172,7 +175,7 @@ class Data:
 def solve(args):
     nvars = n1 + vper * (S.numyr + S.workyr)
     global fsave_offset, fira_offset, froth_offset, ira2roth_offset
-    global save_offset, ira_offset, roth_offset, taxes_offset
+    global save_offset, ira_offset, roth_offset, taxes_offset, cgd_offset
     fsave_offset = 0
     fira_offset = fsave_offset + 1
     froth_offset = fira_offset + 1
@@ -186,6 +189,7 @@ def solve(args):
     ira_offset = save_offset + 1
     roth_offset = ira_offset + 1
     taxes_offset = roth_offset + 1
+    cgd_offset = taxes_offset + 1
 
     # put the <= constrtaints here
     A = []
@@ -235,6 +239,7 @@ def solve(args):
         n_save = year_offset + save_offset 
         n_ira = year_offset + ira_offset 
         n_roth = year_offset + roth_offset
+        n_cgd = year_offset + cgd_offset
         
         row = [0] * nvars
         row[n_fsave] = S.worktax
@@ -246,6 +251,15 @@ def solve(args):
 
         else:
             b += [S.maxsave]
+
+
+        # set year-end cap-gains distribution
+        row = [0] * nvars
+        row[n_cgd] = 1
+        row[n_save] = -1 * S.r_rate * S.aftertax['distributions']
+        row[n_fsave] = -1 * S.r_rate * S.aftertax['distributions']
+        AE += [row]
+        be += [0]
 
         # max IRA per year
         row = [0] * nvars
@@ -309,6 +323,7 @@ def solve(args):
         n_ira = year_offset + ira_offset
         n_roth = year_offset + roth_offset
         n_taxes = year_offset + taxes_offset
+        n_cgd = year_offset + cgd_offset
 
         if (args.spend is not None):
             # spending is set so we'll minimize lifetime taxes in today's dollars
@@ -321,6 +336,16 @@ def solve(args):
                          (S.aftertax['bal']*S.r_rate**(year + S.workyr)))
         else:
             basis = 1
+            
+
+        # Set capital gains distributions for the year
+        # This assumes that the taxable distribution is based on the year-end value
+        row = [0] * nvars
+        row[n_cgd] = 1
+        row[n_save] = -1 * S.r_rate * S.aftertax['distributions']
+        row[n_fsave] = 1 * S.r_rate * S.aftertax['distributions']
+        AE += [row]
+        be += [0]
 
 
         # limit how much can be considered part of the standard deduction
@@ -362,12 +387,13 @@ def solve(args):
             b += [(high - low) * i_mul]
 
         # the sum of everything in the state std deduction + state tax brackets must 
-        # be equal to fira + ira2roth + fsave*basis + state_taxed_extra
+        # be equal to fira + ira2roth + cgd + fsave*basis + state_taxed_extra
         # Note: capital gains are treated as income for state taxes
         row = [0] * nvars
         row[n_fira] = 1
         row[n_ira2roth] = 1
         row[n_fsave] = basis
+        row[n_cgd] = 1
         row[n_state_stded] = -1
         for idx in range(len(S.state_taxtable)):
             row[n_state_taxtable+idx] = -1
@@ -480,9 +506,10 @@ def solve(args):
             A += [row]
             b += [(high-low) * i_mul]
 
-        # the sum of the used cg tax brackets must equal basis*fsave
+        # the sum of the used cg tax brackets must equal cgd + basis*fsave
         row = [0] * nvars
         row[n_fsave] = basis
+        row[n_cgd] = 1
         for idx in range(len(S.cg_taxtable)):
             row[n_cg_taxtable+idx*cg_vper+8] = -1
         AE += [row]
@@ -508,6 +535,8 @@ def solve(args):
         row = [0] * nvars
         # spendable money
         row[n_fsave] = 1
+        if (year+S.workyr > 0):
+            row[n_cgd - vper] = 1           # spend last years cg distributions
         row[n_fira] = 1
         row[n_froth] = 1
         # spent money
@@ -523,6 +552,7 @@ def solve(args):
             row[n1+vper*y+fsave_offset] = -(S.r_rate ** (year + S.workyr - y))
         for y in range(year):
             row[n0+vper*y+fsave_offset] = S.r_rate ** (year - y)
+            row[n0+vper*y+cgd_offset] = S.r_rate ** (year - y)
         AE += [row]
         be += [S.aftertax['bal'] * S.r_rate ** (S.workyr + year)]
 
@@ -559,6 +589,7 @@ def solve(args):
     inc = 0
     for year in range(S.numyr):
         row[n0+vper*year+fsave_offset] = S.r_rate ** (S.numyr - year)
+        row[n0+vper*year+cgd_offset] = S.r_rate ** (S.numyr - year)
         #if S.income[year] > 0:
         #    inc += S.income[year] * S.r_rate ** (S.numyr - year)
     for year in range(S.workyr):
@@ -724,9 +755,9 @@ def print_ascii(res):
                ira/1000, fira/1000,
                roth/1000, froth/1000))
 
-    print((" age" + " %5s" * 12) %
+    print((" age" + " %5s" * 13) %
           ("save", "fsave", "IRA", "fIRA", "SEPP", "Roth", "fRoth", "IRA2R",
-           "rate", "tax", "spend", "extra"))
+           "rate", "tax", "spend", "extra", "cgd"))
     ttax = 0.0
     tspend = 0.0
     for year in range(S.numyr):
@@ -735,6 +766,7 @@ def print_ascii(res):
         fira = res[n0+year*vper+fira_offset]
         froth = res[n0+year*vper+froth_offset]
         ira2roth = res[n0+year*vper+ira2roth_offset]
+        cgd = res[n0+year*vper+cgd_offset]
         if year < S.sepp_end:
             sepp_spend = sepp/S.sepp_ratio
         else:
@@ -748,7 +780,7 @@ def print_ascii(res):
         if S.aftertax['basis'] > 0:
             basis = 1 - (S.aftertax['basis'] /
                          (S.aftertax['bal']*S.r_rate**(year + S.workyr)))
-        state_inc = fira + ira2roth - S.state_stded*i_mul + S.state_taxed[year] + basis*fsavings + sepp_spend
+        state_inc = fira + ira2roth - S.state_stded*i_mul + S.state_taxed[year] + basis*fsavings + cgd + sepp_spend
         tax = res[n0+year*vper+taxes_offset]
 
         fed_rate = 0
@@ -762,18 +794,21 @@ def print_ascii(res):
         #    savings += S.income[year]
 
         extra = S.expenses[year] - S.income[year]
-        spending = fsavings + fira + froth - tax - extra + sepp_spend
+        spend_cgd = 0
+        if (year+S.workyr > 0):      # spend last year's distributions
+            spend_cgd = res[n0+year*vper+cgd_offset-vper]
+        spending = fsavings + spend_cgd + fira + froth - tax - extra + sepp_spend
 
         ttax += tax / i_mul                     # totals in today's dollars
         tspend += (spending + extra) / i_mul    # totals in today's dollars
         div_by = 1000
-        print((" %d:" + " %5.0f" * 12) %
+        print((" %d:" + " %5.0f" * 13) %
               (year+S.retireage,
                savings/div_by, fsavings/div_by,
                ira/div_by, fira/div_by, sepp_spend/div_by,
                roth/div_by, froth/div_by, ira2roth/div_by,
                rate * 100, tax/div_by, spending/div_by, 
-               extra/div_by))
+               extra/div_by, cgd/div_by))
 
 
     print("\ntotal spending: %.0f" % tspend)

@@ -54,6 +54,9 @@ age = "55-67"
 [aftertax]
 bal = 212000
 basis = 115000		# for capital gains tax
+# if you get yearly capital gains or qualified dividend distributions 
+# from this account then set the percentage
+distributions = 0
 
 # pre-tax IRA accounts
 [IRA]
