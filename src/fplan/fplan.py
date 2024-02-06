@@ -239,6 +239,7 @@ def solve(args):
         n_save = year_offset + save_offset 
         n_ira = year_offset + ira_offset 
         n_roth = year_offset + roth_offset
+        n_cgd = year_offset + cgd_offset
         
         row = [0] * nvars
         row[n_fsave] = S.worktax
@@ -250,6 +251,15 @@ def solve(args):
 
         else:
             b += [S.maxsave]
+
+
+        # set year-end cap-gains distribution
+        row = [0] * nvars
+        row[n_cgd] = 1
+        row[n_save] = -1 * S.r_rate * S.aftertax['distributions']
+        row[n_fsave] = -1 * S.r_rate * S.aftertax['distributions']
+        AE += [row]
+        be += [0]
 
         # max IRA per year
         row = [0] * nvars
@@ -525,7 +535,7 @@ def solve(args):
         row = [0] * nvars
         # spendable money
         row[n_fsave] = 1
-        if (year > 0):
+        if (year+S.workyr > 0):
             row[n_cgd - vper] = 1           # spend last years cg distributions
         row[n_fira] = 1
         row[n_froth] = 1
@@ -785,7 +795,7 @@ def print_ascii(res):
 
         extra = S.expenses[year] - S.income[year]
         spend_cgd = 0
-        if (year > 0):      # spend last year's distributions
+        if (year+S.workyr > 0):      # spend last year's distributions
             spend_cgd = res[n0+year*vper+cgd_offset-vper]
         spending = fsavings + spend_cgd + fira + froth - tax - extra + sepp_spend
 
