@@ -789,8 +789,8 @@ def solve(args):
         print(res)
         exit(1)
 
-    for i in range(vper):
-        print("%i %f" % (i, res.x[n0+0*vper+i]))
+#    for i in range(vper):
+#        print("%i %f" % (i, res.x[n0+0*vper+i]))
     print(res.message)
     if (args.roth is not None):
         i_mul = S.i_rate ** S.numyr
