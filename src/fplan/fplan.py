@@ -620,7 +620,7 @@ def solve(args):
             row[n1+vper*y+fsave_offset] = -(S.r_rate ** (year + S.workyr - y))
         for y in range(year):
             row[n0+vper*y+fsave_offset] = S.r_rate ** (year - y)
-            row[n0+vper*y+cgd_offset] = S.r_rate ** (year - y)
+            row[n0+vper*y+cgd_offset] = S.r_rate ** (year - y - 1)
         AE += [row]
         be += [S.aftertax['bal'] * S.r_rate ** (S.workyr + year)]
 
@@ -657,7 +657,7 @@ def solve(args):
     inc = 0
     for year in range(S.numyr):
         row[n0+vper*year+fsave_offset] = S.r_rate ** (S.numyr - year)
-        row[n0+vper*year+cgd_offset] = S.r_rate ** (S.numyr - year)
+        row[n0+vper*year+cgd_offset] = S.r_rate ** (S.numyr - year - 1)
         #if S.income[year] > 0:
         #    inc += S.income[year] * S.r_rate ** (S.numyr - year)
     for year in range(S.workyr):
