@@ -191,6 +191,10 @@ def solve(args):
     taxes_offset = roth_offset + 1
     cgd_offset = taxes_offset + 1
 
+    M = 5_000_000
+    integrality = [0] * nvars
+    bounds = [(0, None)] * nvars
+
     # put the <= constrtaints here
     A = []
     b = []
@@ -198,6 +202,85 @@ def solve(args):
     # put the equality constrtaints here
     AE = []
     be = []
+
+    # https://stackoverflow.com/questions/56050131/how-i-can-seperate-negative-and-positive-variables
+    def split_value(actual_col, ind_col, pos_col, neg_col):
+        nonlocal A, b, AE, be, bounds, integrality
+
+        bounds[actual_col] = (None, None)
+        bounds[ind_col] = (0, 1)
+        integrality[ind_col] = 1
+
+        row = [0] * nvars 
+        row[actual_col] = 1
+        row[pos_col] = -1
+        row[neg_col] = 1
+        AE += [row]
+        be += [0]
+
+        row = [0] * nvars 
+        row[actual_col] = 1
+        A += [row]
+        b += [M]
+
+        row = [0] * nvars 
+        row[actual_col] = -1
+        A += [row]
+        b += [M]
+
+        row = [0] * nvars
+        row[pos_col] = 1
+        row[ind_col] = -M
+        A += [row]
+        b += [0]
+
+        row = [0] * nvars
+        row[neg_col] = 1
+        row[ind_col] = M
+        A += [row] 
+        b += [M]
+
+
+    # https://www.fico.com/fico-xpress-optimization/docs/latest/mipform/dhtml/chap2s1.html?scroll=ssecminval
+    def find_min(result_col, a_col, b_col, a_ind_col, b_ind_col):
+        nonlocal A, b, AE, be, bounds, integrality
+        bounds[n_cg_taxtable+idx*cg_vper+5] = (0, 1)
+        bounds[n_cg_taxtable+idx*cg_vper+6] = (0, 1)
+        integrality[n_cg_taxtable+idx*cg_vper+5] = 1
+        integrality[n_cg_taxtable+idx*cg_vper+6] = 1
+
+        row = [0] * nvars
+        row[result_col] = 1
+        row[a_col] = -1
+        A += [row]
+        b += [0]
+
+        row = [0] * nvars
+        row[result_col] = 1
+        row[b_col] = -1
+        A += [row]
+        b += [0]
+
+        row = [0] * nvars
+        row[a_ind_col] = 1
+        row[b_ind_col] = 1
+        AE += [row]
+        be += [1]
+
+        row = [0] * nvars
+        row[result_col] = -1
+        row[a_col] = 1
+        row[a_ind_col] = M + M
+        A += [row]
+        b += [M + M]
+
+        row = [0] * nvars
+        row[result_col] = -1
+        row[b_col] = 1
+        row[b_ind_col] = M + M
+        A += [row]
+        b += [M + M]
+
 
     # optimize this poly
     c = [0] * nvars
@@ -302,11 +385,8 @@ def solve(args):
         be += [S.roth['bal'] * S.r_rate ** (year)]
        
 
-
     # For a study that influenced this strategy see
     # https://www.academyfinancial.org/resources/Documents/Proceedings/2009/3B-Coopersmith-Sumutka-Arvesen.pdf
-    integrality = [0] * nvars
-    bounds = [(0, None)] * nvars
     for year in range(S.numyr):
         i_mul = S.i_rate ** (year + S.workyr)
         year_offset = n0+vper*year
@@ -417,40 +497,8 @@ def solve(args):
 
             # the previous calc could have given a negative number
             # force max(0, previous_calc) into cg2
-            # https://stackoverflow.com/questions/56050131/how-i-can-seperate-negative-and-positive-variables
-            bounds[n_cg_taxtable+idx*cg_vper+0] = (None, None)
-            bounds[n_cg_taxtable+idx*cg_vper+1] = (0, 1)
-            integrality[n_cg_taxtable+idx*cg_vper+1] = 1
-
-            row = [0] * nvars 
-            row[n_cg_taxtable+idx*cg_vper+0] = 1
-            row[n_cg_taxtable+idx*cg_vper+2] = -1
-            row[n_cg_taxtable+idx*cg_vper+3] = 1
-            AE += [row]
-            be += [0]
-
-            M = 5_000_000
-            row = [0] * nvars 
-            row[n_cg_taxtable+idx*cg_vper+0] = 1
-            A += [row]
-            b += [M]
-            
-            row = [0] * nvars 
-            row[n_cg_taxtable+idx*cg_vper+0] = -1
-            A += [row]
-            b += [M]
-
-            row = [0] * nvars
-            row[n_cg_taxtable+idx*cg_vper+2] = 1
-            row[n_cg_taxtable+idx*cg_vper+1] = -M
-            A += [row]
-            b += [0]
-
-            row = [0] * nvars
-            row[n_cg_taxtable+idx*cg_vper+3] = 1
-            row[n_cg_taxtable+idx*cg_vper+1] = M
-            A += [row] 
-            b += [M]
+            split_value(n_cg_taxtable+idx*cg_vper+0, n_cg_taxtable+idx*cg_vper+1,
+                        n_cg_taxtable+idx*cg_vper+2, n_cg_taxtable+idx*cg_vper+3)
 
             # put size of this bracket in cg4
             row = [0] * nvars
@@ -460,43 +508,9 @@ def solve(args):
 
             # put the min(cg2, cg4) into cg7
             # cg5 and cg6 are used as temporary variables
-            # https://www.fico.com/fico-xpress-optimization/docs/latest/mipform/dhtml/chap2s1.html?scroll=ssecminval
-            bounds[n_cg_taxtable+idx*cg_vper+5] = (0, 1)
-            bounds[n_cg_taxtable+idx*cg_vper+6] = (0, 1)
-            integrality[n_cg_taxtable+idx*cg_vper+5] = 1
-            integrality[n_cg_taxtable+idx*cg_vper+6] = 1
-
-            row = [0] * nvars
-            row[n_cg_taxtable+idx*cg_vper+7] = 1
-            row[n_cg_taxtable+idx*cg_vper+2] = -1
-            A += [row]
-            b += [0]
-
-            row = [0] * nvars
-            row[n_cg_taxtable+idx*cg_vper+7] = 1
-            row[n_cg_taxtable+idx*cg_vper+4] = -1
-            A += [row]
-            b += [0]
-
-            row = [0] * nvars
-            row[n_cg_taxtable+idx*cg_vper+5] = 1
-            row[n_cg_taxtable+idx*cg_vper+6] = 1
-            AE += [row]
-            be += [1]
-
-            row = [0] * nvars
-            row[n_cg_taxtable+idx*cg_vper+7] = -1
-            row[n_cg_taxtable+idx*cg_vper+2] = 1
-            row[n_cg_taxtable+idx*cg_vper+5] = M + M
-            A += [row]
-            b += [M + M]
-
-            row = [0] * nvars
-            row[n_cg_taxtable+idx*cg_vper+7] = -1
-            row[n_cg_taxtable+idx*cg_vper+4] = 1
-            row[n_cg_taxtable+idx*cg_vper+6] = M + M
-            A += [row]
-            b += [M + M]
+            find_min(n_cg_taxtable+idx*cg_vper+7, n_cg_taxtable+idx*cg_vper+2,
+                     n_cg_taxtable+idx*cg_vper+4, n_cg_taxtable+idx*cg_vper+5,
+                     n_cg_taxtable+idx*cg_vper+6)
 
             # cg7 (part of bracket used by income) + cg8 (part of bracket used by cap gains)
             # must be less than the size of bracket
@@ -505,6 +519,9 @@ def solve(args):
             row[n_cg_taxtable+idx*cg_vper+8] = 1
             A += [row]
             b += [(high-low) * i_mul]
+
+        # calc the NII tax
+
 
         # the sum of the used cg tax brackets must equal cgd + basis*fsave
         row = [0] * nvars
