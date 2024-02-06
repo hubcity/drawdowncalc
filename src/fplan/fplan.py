@@ -70,10 +70,12 @@ class Data:
             if (type(tmp_state_taxrates) is not list):
                 tmp_state_taxrates = [[0, tmp_state_taxrates]]
             self.stded = d['taxes'].get('stded', default_stded)
-            self.state_stded = d['taxes'].get('state_stded', self.stded) 
+            self.state_stded = d['taxes'].get('state_stded', self.stded)
+            self.nii = d['taxes'].get('nii', 250000)
         else:
             self.stded = default_stded
             self.state_stded = default_stded
+            self.nii = 250000
         self.taxrates = [[x,y/100.0] for (x,y) in tmp_taxrates]
         cutoffs = [x[0] for x in self.taxrates][1:] + [float('inf')]
         self.taxtable = list(map(lambda x, y: [x[1], x[0], y], self.taxrates, cutoffs))
@@ -87,11 +89,12 @@ class Data:
 
         # add columns for the standard deduction, tax brackets, 
         # state std deduction, state bracket, cg brackets(xN),
-        # running account totals, total taxes and yearly cap gains dist.
+        # running account totals, total taxes, yearly cap gains dist.
+        # and nii taxes
         global cg_vper 
         cg_vper = 9
         vper += 1 + len(self.taxtable) + 1 + len(self.state_taxtable) + \
-            cg_vper*len(self.cg_taxtable) + 3 + 1 + 1
+            cg_vper*len(self.cg_taxtable) + 3 + 1 + 1 + cg_vper*2
 
         if 'prep' in d:
             self.workyr = d['prep']['workyears']
@@ -190,6 +193,7 @@ def solve(args):
     roth_offset = ira_offset + 1
     taxes_offset = roth_offset + 1
     cgd_offset = taxes_offset + 1
+    nii_offset = cgd_offset + 1
 
     M = 5_000_000
     integrality = [0] * nvars
@@ -244,10 +248,11 @@ def solve(args):
     # https://www.fico.com/fico-xpress-optimization/docs/latest/mipform/dhtml/chap2s1.html?scroll=ssecminval
     def find_min(result_col, a_col, b_col, a_ind_col, b_ind_col):
         nonlocal A, b, AE, be, bounds, integrality
-        bounds[n_cg_taxtable+idx*cg_vper+5] = (0, 1)
-        bounds[n_cg_taxtable+idx*cg_vper+6] = (0, 1)
-        integrality[n_cg_taxtable+idx*cg_vper+5] = 1
-        integrality[n_cg_taxtable+idx*cg_vper+6] = 1
+
+        bounds[a_ind_col] = (0, 1)
+        bounds[b_ind_col] = (0, 1)
+        integrality[a_ind_col] = 1
+        integrality[b_ind_col] = 1
 
         row = [0] * nvars
         row[result_col] = 1
@@ -404,6 +409,7 @@ def solve(args):
         n_roth = year_offset + roth_offset
         n_taxes = year_offset + taxes_offset
         n_cgd = year_offset + cgd_offset
+        n_nii = year_offset + nii_offset
 
         if (args.spend is not None):
             # spending is set so we'll minimize lifetime taxes in today's dollars
@@ -484,7 +490,7 @@ def solve(args):
         for idx, (rate, low, high) in enumerate(S.cg_taxtable[0:-1]):
             # limit how much can be put in each cg tax bracket
 
-            # how much does our agi take us over this bracket
+            # how much does our taxable income take us over this bracket
             # store this value in (cg2 - cg3), see below
             row = [0] * nvars
             row[n_fira] = 1
@@ -520,9 +526,6 @@ def solve(args):
             A += [row]
             b += [(high-low) * i_mul]
 
-        # calc the NII tax
-
-
         # the sum of the used cg tax brackets must equal cgd + basis*fsave
         row = [0] * nvars
         row[n_fsave] = basis
@@ -531,6 +534,53 @@ def solve(args):
             row[n_cg_taxtable+idx*cg_vper+8] = -1
         AE += [row]
         be += [0]
+
+
+        # calc the nii tax
+        # how much does our non-investment income take us over this bracket
+        # store this value in (nii2 - nii3), see below
+        row = [0] * nvars
+        row[n_fira] = 1
+        row[n_ira2roth] = 1
+        row[n_nii+3] = 1
+        row[n_nii+2] = -1
+        AE += [row]
+        be += [-S.taxed[year]]
+
+        # the previous calc could have given a negative number
+        # force max(0, previous_calc) into nii2
+        split_value(n_nii+0, n_nii+1,
+                    n_nii+2, n_nii+3)
+
+        # put size of this bracket in nii4
+        row = [0] * nvars
+        row[n_nii+4] = 1
+        AE += [row]
+        be += [S.nii]       # no inflation for nii
+
+        # put the min(nii2, nii4) into nii7
+        # cg5 and cg6 are used as temporary variables
+        find_min(n_nii+7, n_nii+2,
+                 n_nii+4, n_nii+5,
+                 n_nii+6)
+
+        # nii7 (part of bracket used by income) + nii8 (part of bracket used by cap gains)
+        # must be less than the size of bracket
+        row = [0] * nvars
+        row[n_nii+7] = 1
+        row[n_nii+8] = 1
+        A += [row]
+        b += [S.nii]        # no inflation for nii
+
+        # the sum of the used nii tax brackets must equal cgd + basis*fsave
+        row = [0] * nvars
+        row[n_fsave] = basis
+        row[n_cgd] = 1
+        for idx in range(2):
+            row[n_nii+idx*cg_vper+8] = -1
+        AE += [row]
+        be += [0]
+
 
 
         # calc total taxes
@@ -545,6 +595,7 @@ def solve(args):
             row[n_state_taxtable+idx] = -rate
         for idx, (rate, low, high) in enumerate(S.cg_taxtable):
             row[n_cg_taxtable+idx*cg_vper+8] = -rate
+        row[n_nii+1*cg_vper+8] = -0.038
         AE += [row]
         be += [0]
 
@@ -738,8 +789,8 @@ def solve(args):
         print(res)
         exit(1)
 
-#    for i in range(vper):
-#        print("%i %f" % (i, res.x[n0+0*vper+i]))
+    for i in range(vper):
+        print("%i %f" % (i, res.x[n0+0*vper+i]))
     print(res.message)
     if (args.roth is not None):
         i_mul = S.i_rate ** S.numyr
