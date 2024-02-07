@@ -133,6 +133,7 @@ class Data:
         EXP = [0] * self.numyr
         TAX = [0] * self.numyr
         STATE_TAX = [0] * self.numyr
+        CEILING = [5000000] * self.numyr
 
         for k,v in S.get('expense', {}).items():
             for age in agelist(v['age']):
@@ -155,6 +156,11 @@ class Data:
                 elif year >= self.numyr:
                     break
                 else:
+                    ceil = v.get('ceiling', 5000000)
+                    if v.get('inflation'):
+                        ceil *= self.i_rate ** (year + self.workyr)
+                    if (ceil < CEILING[year]):
+                        CEILING[year] = ceil
                     amount = v['amount']
                     if v.get('inflation'):
                         amount *= self.i_rate ** (year + self.workyr)
@@ -170,6 +176,7 @@ class Data:
         self.expenses = EXP
         self.taxed = TAX
         self.state_taxed = STATE_TAX
+        self.ceiling = CEILING
 
 # Minimize: c^T * x
 # Subject to: A_ub * x <= b_ub
@@ -433,6 +440,13 @@ def solve(args):
         AE += [row]
         be += [0]
 
+        row = [0] * nvars
+        row[n_cgd] = 1
+        row[n_fsave] = basis
+        row[n_fira] = 1
+        row[n_ira2roth] = 1
+        A += [row]
+        b += [S.ceiling[year]]
 
         # limit how much can be considered part of the standard deduction
         row = [0] * nvars
@@ -591,6 +605,8 @@ def solve(args):
         row[n_froth] = -0
         for idx, (rate, low, high) in enumerate(S.taxtable):
             row[n_taxtable+idx] = -rate
+#            if (year > 2):
+#                row[n_taxtable+idx] += -0.03
         for idx, (rate, low, high) in enumerate(S.state_taxtable):
             row[n_state_taxtable+idx] = -rate
         for idx, (rate, low, high) in enumerate(S.cg_taxtable):
