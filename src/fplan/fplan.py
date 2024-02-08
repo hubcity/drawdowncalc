@@ -89,12 +89,14 @@ class Data:
 
         # add columns for the standard deduction, tax brackets, 
         # state std deduction, state bracket, cg brackets(xN),
-        # running account totals, total taxes, yearly cap gains dist.
-        # and nii taxes
+        # running account totals, state tax, fed tax, total taxes, 
+        # yearly cap gains dist. and nii taxes
         global cg_vper 
         cg_vper = 9
-        vper += 1 + len(self.taxtable) + 1 + len(self.state_taxtable) + \
-            cg_vper*len(self.cg_taxtable) + 3 + 1 + 1 + cg_vper*2
+        vper += 1 + len(self.taxtable) + \
+            1 + len(self.state_taxtable) + cg_vper*len(self.cg_taxtable) + \
+                3 + 1 + 1 + 1 + \
+                    1 + cg_vper*2
 
         if 'prep' in d:
             self.workyr = d['prep']['workyears']
@@ -186,6 +188,7 @@ def solve(args):
     nvars = n1 + vper * (S.numyr + S.workyr)
     global fsave_offset, fira_offset, froth_offset, ira2roth_offset
     global save_offset, ira_offset, roth_offset, taxes_offset, cgd_offset
+    global fedtax_offset, statetax_offset
     fsave_offset = 0
     fira_offset = fsave_offset + 1
     froth_offset = fira_offset + 1
@@ -198,7 +201,9 @@ def solve(args):
     save_offset = cg_taxtable_offset + len(S.cg_taxtable)*cg_vper
     ira_offset = save_offset + 1
     roth_offset = ira_offset + 1
-    taxes_offset = roth_offset + 1
+    fedtax_offset = roth_offset + 1
+    statetax_offset = fedtax_offset + 1
+    taxes_offset = statetax_offset + 1
     cgd_offset = taxes_offset + 1
     nii_offset = cgd_offset + 1
 
@@ -414,6 +419,8 @@ def solve(args):
         n_save = year_offset + save_offset
         n_ira = year_offset + ira_offset
         n_roth = year_offset + roth_offset
+        n_fedtax = year_offset + fedtax_offset
+        n_statetax = year_offset + statetax_offset
         n_taxes = year_offset + taxes_offset
         n_cgd = year_offset + cgd_offset
         n_nii = year_offset + nii_offset
@@ -597,21 +604,35 @@ def solve(args):
 
 
 
-        # calc total taxes
+        # calc fed taxes
         row = [0] * nvars
-        row[n_taxes] = 1                    # this is where we will store total taxes
+        row[n_fedtax] = 1                    # this is where we will store total taxes
         if year + S.retireage < 59:         # ira penalty
             row[n_fira] = -0.1
         row[n_froth] = -0
         for idx, (rate, low, high) in enumerate(S.taxtable):
             row[n_taxtable+idx] = -rate
-#            if (year > 2):
-#                row[n_taxtable+idx] += -0.03
-        for idx, (rate, low, high) in enumerate(S.state_taxtable):
-            row[n_state_taxtable+idx] = -rate
+            if args.bumptax and (year > float(args.bumpstart)):
+                row[n_taxtable+idx] += -1 * float(args.bumptax)/100.0
         for idx, (rate, low, high) in enumerate(S.cg_taxtable):
             row[n_cg_taxtable+idx*cg_vper+8] = -rate
         row[n_nii+1*cg_vper+8] = -0.038
+        AE += [row]
+        be += [0]
+
+        # calc state taxes
+        row = [0] * nvars
+        row[n_statetax] = 1                    # this is where we will store total taxes
+        for idx, (rate, low, high) in enumerate(S.state_taxtable):
+            row[n_state_taxtable+idx] = -rate
+        AE += [row]
+        be += [0]
+
+        # calc total taxes
+        row = [0] * nvars
+        row[n_taxes] = 1
+        row[n_fedtax] = -1
+        row[n_statetax] = -1
         AE += [row]
         be += [0]
 
@@ -794,12 +815,16 @@ def solve(args):
         print("Num contraints b: ", len(b))
         print("integrality: ", len(integrality))
 
+    timelimit = 300
+    if args.timelimit:
+        timelimit = float(args.timelimit)
+
     res = scipy.optimize.linprog(c, A_ub=A, b_ub=b, A_eq=AE, b_eq=be,
                                  method="highs",
                                  bounds=bounds, 
                                  integrality=integrality, 
                                  options={'disp': args.verbose, 
-                                          'time_limit': 300,
+                                          'time_limit': timelimit,
                                           'presolve': args.spend is None})
     if res.status > 1:
         print(res)
@@ -905,14 +930,22 @@ def print_csv(res):
     print("ira,%d" % S.IRA['bal'])
     print("roth,%d" % S.roth['bal'])
 
-    print("age,fsave,fIRA,fROTH,IRA2R,income,expense")
+    print("age,save,fsave,IRA,fIRA,Roth,fRoth,IRA2R,income,expense,cgd,fed_tax,state_tax,spend")
     for year in range(S.numyr):
+        savings = res[n0+year*vper+save_offset]
         fsavings = res[n0+year*vper+fsave_offset]
+        ira = res[n0+year*vper+ira_offset]
         fira = res[n0+year*vper+fira_offset]
+        roth = res[n0+year*vper+roth_offset]
         froth = res[n0+year*vper+froth_offset]
         ira2roth = res[n0+year*vper+ira2roth_offset]
-        print(("%d," * 6 + "%d") % (year+S.retireage,fsavings,fira,froth,ira2roth,
-                                    S.income[year],S.expenses[year]))
+        cgd = res[n0+year*vper+cgd_offset]
+        fed_tax = res[n0+year*vper+fedtax_offset]
+        state_tax = res[n0+year*vper+statetax_offset]
+        print(("%d," * 13 + "%d") % (year+S.retireage,savings,fsavings,ira,
+                                     fira,roth,froth,ira2roth,S.income[year],
+                                     S.expenses[year],cgd,fed_tax,state_tax,
+                                     res[0]*S.i_rate**(S.workyr+year)))
 
 def main():
     # Instantiate the parser
@@ -924,6 +957,12 @@ def main():
     parser.add_argument('--csv', action='store_true', help="Generate CSV outputs")
     parser.add_argument('--validate', action='store_true',
                         help="compare single run to separate runs")
+    parser.add_argument('--timelimit',
+                        help="After given seconds return the best answer found")
+    parser.add_argument('--bumpstart',
+                        help="Start tax bump after given years")
+    parser.add_argument('--bumptax',
+                        help="Increase taxes charged in all federal income tax brackets")
     group = parser.add_mutually_exclusive_group()
     group.add_argument('--spend',
                         help="Setting yearly spending will cause taxes to be minimized")
@@ -931,6 +970,9 @@ def main():
                        help="Specify the total that should be left in the Roth account")
     parser.add_argument('conffile')
     args = parser.parse_args()
+
+    if bool(args.bumptax) ^ bool(args.bumpstart):
+        parser.error('--bumptax and --bumpstart must be given together')
 
     global S
     global vper, n1
