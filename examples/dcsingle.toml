@@ -37,7 +37,7 @@ nii = 200_000
 amount = 35000
 age = "70-"
 inflation = true
-tax = true                          # count this as income tax
+tax = true                          # count this as income
 state_tax = false                   # DC doesn't tax ss
 
 
@@ -46,7 +46,7 @@ amount = 8000
 ceiling = 37500
 age = "55-64"  
 inflation = true
-tax = false                         # don't count this as income tax
+tax = false                         # don't count this as income
 
 
 [income.cash]
