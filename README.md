@@ -38,19 +38,19 @@ in table are in 1000s of dollars.
 Shows the progress of the solver as it attempts to maximize your spending floor.
 
 ### --timelimit N
-Usually the program gives you an answer within a few seconds.  In the event that it can't find the answer quickly it will return the best answer that it has found after 300 seconds (5 minutes).  If you want to wait longer then you can specify how long, in seconds, that you are willing to wait with this option.  I recommend that you use the --verbose option in conjunction with this argument so you can see that progress is being made.
+Usually the program gives you an answer within a few seconds.  In the event that it can't find the answer quickly it will return the best answer that it has found after 300 seconds (5 minutes).  If you want to wait longer then you can specify how long, in seconds, that you are willing to wait with this option.  I recommend that you use the --verbose option in conjunction with this option so you can see that progress is being made.
 
 ### --csv
 Outputs your answer in csv format instead of a table.
 
 ### --spend N
-Instead of solving to maximize your spending floor, this option will solve for the given amount of spending while minimizing lifetime taxes.
+Instead of solving to maximize your spending floor, this option will solve for at least the given amount of spending while minimizing lifetime taxes.
 
 ### --roth N
 Solves to maximize your spending floor while leaving at least N dollars, in inflation adjusted terms, in your Roth account at the end of your plan.
 
 ### --bumpstart Y --bumptax T
-This program doesn't try to model what will happen when the TCJA expires.  However, you can use these options to get a rough idea by modeling what would happen if all of the federal income tax bracket levels increased by T after Y years.  So if you wanted to see what the program would suggest if all of the tax brackets added 2.5 (like 10% -> 12.5%, 12% -> 14.5%, etc) in 2 years, then you would use the options: --bumpstart 2 --bumptax 2.5
+Use these options to model what would happen if all of the federal income tax bracket levels increased by T after Y years.  This program doesn't try to model what will happen when the TCJA expires.  You can get a rough approximation by using these options to model all of the tax brackets adding 3 (like 10% -> 13%, 12% -> 15%, 22% -> 25%, etc) in 2 years.  To do so you would use the options: --bumpstart 2 --bumptax 3
 
 ## Why
 This program adds some features that other progams lack, such as:
