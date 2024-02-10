@@ -1,6 +1,6 @@
 # Retirement planner
 
-This is an independant fork of [Wayne Scott's fplan](https://www.github.com/wscott/fplan). It is designed to explore optimial withdrawals from savings, Roth and IRA accounts. It uses a mixed-integer linear programming solution to maximize the minimum amount of money available to spend.
+This is an independant fork of [Wayne Scott's fplan](https://www.github.com/wscott/fplan). It is designed to explore optimal withdrawals from savings, Roth and IRA accounts. It uses a mixed-integer linear programming solution to maximize the minimum amount of money available to spend.
 
 The ideas are similar to those of James Welch at www.i-orp.com.  You should probably look at [i-orp](https://www.i-orp.com) or [wscott/fplan](https://www.github.com/wscott/fplan) before you look at this project.
 
