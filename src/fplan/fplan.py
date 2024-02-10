@@ -431,7 +431,10 @@ def solve(args):
         # XXX fix work contributions
         if S.aftertax['basis'] > 0:
             basis = 1 - (S.aftertax['basis'] /
-                         (S.aftertax['bal']*S.r_rate**(year + S.workyr)))
+                         (S.aftertax['bal'] *
+                          (S.r_rate-S.aftertax['distributions'])**(year + S.workyr)))
+            if basis < 0:
+                basis = 0
         else:
             basis = 1
             
@@ -886,7 +889,10 @@ def print_ascii(res):
         basis = 1
         if S.aftertax['basis'] > 0:
             basis = 1 - (S.aftertax['basis'] /
-                         (S.aftertax['bal']*S.r_rate**(year + S.workyr)))
+                         (S.aftertax['bal'] *
+                          (S.r_rate-S.aftertax['distributions'])**(year + S.workyr)))
+            if basis < 0:
+                basis = 0
         state_inc = fira + ira2roth - S.state_stded*i_mul + S.state_taxed[year] + basis*fsavings + cgd + sepp_spend
         tax = res[n0+year*vper+taxes_offset]
 
