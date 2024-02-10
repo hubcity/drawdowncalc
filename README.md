@@ -78,4 +78,3 @@ Every state has their own rules.  I did not try to implement them all.  I put in
 Check the issues tab for updates.  This is what I'm currently aware of:
 * RMDs still use the old rules for ages
 * Basis calcuations for capital-gains taxes are estimates
-    * The programs fixes your basis percentage at retirement by using the original basis number in your config file.  The basis percentage in retirement never changes.  I'm not sure if this estimate can be improved in a program of this type.
