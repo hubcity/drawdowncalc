@@ -182,8 +182,6 @@ class Data:
 
 # Minimize: c^T * x
 # Subject to: A_ub * x <= b_ub
-#vars: money, per year(savings, ira, roth, ira2roth)  (193 vars)
-#all vars positive
 def solve(args):
     nvars = n1 + vper * (S.numyr + S.workyr)
     global fsave_offset, fira_offset, froth_offset, ira2roth_offset
@@ -322,12 +320,12 @@ def solve(args):
         A += [row]
         b += [-i_mul * float(args.roth)]
 
-    if not args.sepp:
-        # force SEPP to zero
-        row = [0] * nvars
-        row[1] = 1
-        A += [row]
-        b += [0]
+#    if not args.sepp:    # assume sepp is off
+    # force SEPP to zero
+    row = [0] * nvars
+    row[1] = 1
+    A += [row]
+    b += [0]
 
     # Work contributions don't exceed limits
     for year in range(S.workyr):
@@ -580,7 +578,7 @@ def solve(args):
         be += [S.nii]       # no inflation for nii
 
         # put the min(nii2, nii4) into nii7
-        # cg5 and cg6 are used as temporary variables
+        # nii5 and nii6 are used as temporary variables
         find_min(n_nii+7, n_nii+2,
                  n_nii+4, n_nii+5,
                  n_nii+6)
@@ -606,8 +604,8 @@ def solve(args):
 
         # calc fed taxes
         row = [0] * nvars
-        row[n_fedtax] = 1                    # this is where we will store total taxes
-        if year + S.retireage < 59:         # ira penalty
+        row[n_fedtax] = 1                       # this is where we will store fed taxes
+        if year + S.retireage < 59:             # ira penalty
             row[n_fira] = -0.1
         row[n_froth] = -0
         for idx, (rate, low, high) in enumerate(S.taxtable):
@@ -622,7 +620,7 @@ def solve(args):
 
         # calc state taxes
         row = [0] * nvars
-        row[n_statetax] = 1                    # this is where we will store total taxes
+        row[n_statetax] = 1                     # this is where we will store state taxes
         for idx, (rate, low, high) in enumerate(S.state_taxtable):
             row[n_state_taxtable+idx] = -rate
         AE += [row]
@@ -904,7 +902,7 @@ def print_ascii(res):
 
         extra = S.expenses[year] - S.income[year]
         spend_cgd = 0
-        if (year+S.workyr > 0):      # spend last year's distributions
+        if (year+S.workyr > 0):                 # spend last year's distributions
             spend_cgd = res[n0+year*vper+cgd_offset-vper]
         spending = fsavings + spend_cgd + fira + froth - tax - extra + sepp_spend
 
@@ -952,8 +950,10 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('-v', '--verbose', action='store_true',
                         help="Extra output from solver")
-    parser.add_argument('--sepp', action='store_true',
-                        help="Enable SEPP processing")
+    # The sepp code deserves a closer look before being re-enabled
+    # I don't know if I broke it or not.
+#    parser.add_argument('--sepp', action='store_true',
+#                        help="Enable SEPP processing")
     parser.add_argument('--csv', action='store_true', help="Generate CSV outputs")
     parser.add_argument('--validate', action='store_true',
                         help="compare single run to separate runs")
