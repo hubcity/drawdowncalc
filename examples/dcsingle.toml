@@ -1,0 +1,80 @@
+# age range to simulate
+startage = 53
+endage = 96
+
+inflation = 3
+returns = 5.5
+
+
+[taxes]
+taxrates = [[0,      10],
+            [11600,  12],
+            [47150,  22],
+            [100525, 24],
+            [191950, 32],
+            [243725, 35],
+            [609350, 37]]
+stded = 14600            # standard deduction
+
+state_rate = [[0,       4],
+              [10000,   6],
+              [40000,   6.5],
+              [60000,   8.5],
+              [250000,  9.25],
+              [500000,  9.75],
+              [1000000, 10.75]]
+
+cg_taxrates = [[0,        0],
+               [47025,   15],
+               [518900,  20]]
+
+nii = 200_000
+
+
+# assume Social Security will start paying $35k/yr at age 70
+# the SS payout is scaled by inflation
+[income.social_sec]
+amount = 35000
+age = "70-"
+inflation = true
+tax = true                          # count this as income tax
+state_tax = false                   # DC doesn't tax ss
+
+
+[income.aca]
+amount = 8000
+ceiling = 37500
+age = "55-64"  
+inflation = true
+tax = false                         # don't count this as income tax
+
+
+[income.cash]
+amount = 9000                       # last year's unspent cap gains distributions
+age = "53"
+tax = false                         # paid tax on this last year
+
+
+# after tax savings accounts
+[aftertax]
+bal = 300000
+basis = 200000                      # needed to calculate capital gains tax
+distributions = 3.5                 # % yearly cap-gains and qualified distributions
+
+
+# pre-tax IRA accounts
+[IRA]
+bal = 500000
+
+
+# roth IRA accounts
+[roth]
+bal = 100000
+
+
+# record when contributions were made to this account.
+# before age 59 this is used to know when previous contributions can be
+# made. Include IRA->Roth conversions in this list.
+contributions = [[50, 25000],
+                 [51, 25000],
+                 [52, 25000]]
