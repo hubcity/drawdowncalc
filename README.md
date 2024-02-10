@@ -38,7 +38,7 @@ in table are in 1000s of dollars.
 Shows the progress of the solver as it attempts to maximize your spending floor.
 
 ### --timelimit N
-Usually the program gives you an answer within a few seconds.  In the event that it can't find the answer quickly it will give return the best answer that it has found after 300 seconds (5 minutes).  If you want to wait longer then you can specify how long, in seconds, that you are willing to wait with this option.  I recommend that you use the --verbose option in conjunction with this argument so you can see that progress is being made.
+Usually the program gives you an answer within a few seconds.  In the event that it can't find the answer quickly it will return the best answer that it has found after 300 seconds (5 minutes).  If you want to wait longer then you can specify how long, in seconds, that you are willing to wait with this option.  I recommend that you use the --verbose option in conjunction with this argument so you can see that progress is being made.
 
 ### --csv
 Outputs your answer in csv format instead of a table.
@@ -78,4 +78,4 @@ Every state has their own rules.  I did not try to implement them all.  I put in
 Check the issues tab for updates.  This is what I'm currently aware of:
 * RMDs still use the old rules for ages
 * Basis calcuations for capital-gains taxes are estimates
-    * The programs fixes your basis percentage at retirement by using the original basis number in your config file.  The basis percentage in retirement never changes .  I'm not sure if this estimate can be improved in a program of this type.
+    * The programs fixes your basis percentage at retirement by using the original basis number in your config file.  The basis percentage in retirement never changes.  I'm not sure if this estimate can be improved in a program of this type.
