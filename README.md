@@ -76,5 +76,5 @@ Every state has their own rules.  I did not try to implement them all.  I put in
 
 ## Known Issues
 Check the issues tab for updates.  This is what I'm currently aware of:
-* RMDs still use the old rules for ages
+* Start age for RMDs (73) cannot be changed
 * Basis calcuations for capital-gains taxes are estimates
