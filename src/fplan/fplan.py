@@ -438,7 +438,7 @@ def solve(args):
                 basis = 0
         else:
             basis = 1
-            
+#        print("basis", basis)
 
         # Set capital gains distributions for the year
         # This assumes that the taxable distribution is based on the year-end value
@@ -449,13 +449,16 @@ def solve(args):
         AE += [row]
         be += [0]
 
-        row = [0] * nvars
-        row[n_cgd] = 1
-        row[n_fsave] = basis
-        row[n_fira] = 1
-        row[n_ira2roth] = 1
-        A += [row]
-        b += [S.ceiling[year]]
+
+        if (S.ceiling[year] < 5000000):
+            row = [0] * nvars
+            row[n_cgd] = 1
+            row[n_fsave] = basis
+            row[n_fira] = 1
+            row[n_ira2roth] = 1
+            A += [row]
+            b += [S.ceiling[year] - S.taxed[year]]
+#            print("ceiling", S.ceiling[year])
 
         # limit how much can be considered part of the standard deduction
         row = [0] * nvars
@@ -731,15 +734,15 @@ def solve(args):
 
 
     # IRA balance at SEPP end needs to not touch SEPP money
-    row = [0] * nvars
-    for year in range(S.sepp_end):
-        row[n0+vper*year+fira_offset] = S.r_rate ** (S.sepp_end - year)
-        row[n0+vper*year+ira2roth_offset] = S.r_rate ** (S.sepp_end - year)
-    for year in range(S.workyr):
-        row[n1+vper*year+fira_offset] = -(S.r_rate ** (S.sepp_end + S.workyr - year))
-    row[1] = S.r_rate ** S.sepp_end
-    A += [row]
-    b += [S.IRA['bal'] * S.r_rate ** S.sepp_end]
+#    row = [0] * nvars
+#    for year in range(S.sepp_end):
+#        row[n0+vper*year+fira_offset] = S.r_rate ** (S.sepp_end - year)
+#        row[n0+vper*year+ira2roth_offset] = S.r_rate ** (S.sepp_end - year)
+#    for year in range(S.workyr):
+#        row[n1+vper*year+fira_offset] = -(S.r_rate ** (S.sepp_end + S.workyr - year))
+#    row[1] = S.r_rate ** S.sepp_end
+#    A += [row]
+#    b += [S.IRA['bal'] * S.r_rate ** S.sepp_end]
 
 
     # before 59, Roth can only spend from contributions
@@ -894,6 +897,7 @@ def print_ascii(res):
                           (S.r_rate-S.aftertax['distributions'])**(year + S.workyr)))
             if basis < 0:
                 basis = 0
+#        print("basis: ", basis)
         state_inc = fira + ira2roth - S.state_stded*i_mul + S.state_taxed[year] + basis*fsavings + cgd + sepp_spend
         tax = res[n0+year*vper+taxes_offset]
 
@@ -914,7 +918,7 @@ def print_ascii(res):
         spending = fsavings + spend_cgd + fira + froth - tax - extra + sepp_spend
 
         ttax += tax / i_mul                     # totals in today's dollars
-        tspend += (spending + extra) / i_mul    # totals in today's dollars
+        tspend += (spending) / i_mul    # totals in today's dollars
         div_by = 1000
         print((" %d:" + " %5.0f" * 13) %
               (year+S.retireage,
