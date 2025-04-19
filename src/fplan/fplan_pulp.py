@@ -241,7 +241,7 @@ def solve_pulp(args, S):
     f_ira = pulp.LpVariable.dicts("Retire_Withdraw_IRA", years_retire, lowBound=0)
     f_roth = pulp.LpVariable.dicts("Retire_Withdraw_Roth", years_retire, lowBound=0)
     ira_to_roth = pulp.LpVariable.dicts("Retire_IRA_to_Roth", years_retire, lowBound=0)
-    conversion_convience_fee = pulp.LpVariable.dicts("Conversion_Convenience_Fee", years_retire, lowBound=0) # Fee for converting to Roth
+    conversion_convenience_penalty = pulp.LpVariable.dicts("Conversion_Convenience_Penalty", years_retire, lowBound=0) # Penalty for converting to Roth
 
     # Balances (Beginning of Year)
     bal_save = pulp.LpVariable.dicts("Balance_Save", years_retire, lowBound=0)
@@ -296,8 +296,10 @@ def solve_pulp(args, S):
 
     # --- Objective Function ---
     if args.spend is None:
-        # Maximize spending_floor
-        prob += spending_floor, "Maximize_Spending"
+        # Maximize spending_floor,
+        # prob += spending_floor, "Maximize_Spending"
+        # Subtracting the convenience penalty from what we are trying to maximize is an UGLY hack, but, wow, does it work well!
+        prob += spending_floor - pulp.lpSum(conversion_convenience_penalty[y] for y in years_retire), "Maximize_Spending"
         # Add constraint to ensure spending_floor is achievable minimum each year
         for y in years_retire:
              i_mul = S.i_rate ** y
@@ -370,8 +372,8 @@ def solve_pulp(args, S):
             prob += bal_roth[y] == last_bal_roth, f"Retire_InitRothBal_{y}"
         else:
             prob += bal_save[y] == (bal_save[y-1] - f_save[y-1]) * S.r_rate - cgd[y-1], f"Retire_SaveBal_{y}"
-#            add_min_constraints(prob, conversion_convience_fee[y-1], ira_to_roth[y-1], 100, M, f"ConversionFee_{y}")
-            prob += bal_ira[y] == (bal_ira[y-1] - f_ira[y-1] - ira_to_roth[y-1] - conversion_convience_fee[y-1]) * S.r_rate, f"Retire_IRABal_{y}"
+            add_min_constraints(prob, conversion_convenience_penalty[y-1], ira_to_roth[y-1], 100, M, f"ConversionPenalty_{y}")
+            prob += bal_ira[y] == (bal_ira[y-1] - f_ira[y-1] - ira_to_roth[y-1]) * S.r_rate, f"Retire_IRABal_{y}"
             prob += bal_roth[y] == (bal_roth[y-1] - f_roth[y-1] + ira_to_roth[y-1]) * S.r_rate, f"Retire_RothBal_{y}"
 
         # prob += ira_to_roth[y] == 0
@@ -492,17 +494,6 @@ def solve_pulp(args, S):
         # fira + ira2roth + taxed_extra + basis*fsave + cgd <= ceiling
         if (S.income_ceiling[y] < 5000000):
             prob += f_ira[y] + ira_to_roth[y] + S.taxed_income[y] + f_save[y] * taxable_part_of_f_save + cgd[y] <= S.income_ceiling[y], f"IncomeCeiling_{y}"
-
-        # These constraints can make the results "prettier" by avoiding converting to a Roth and then immediately withdrawing it,
-        # but they can make the compution slower.
-        #  add_if_then_constraint(prob, ira_to_roth[y], f_roth[y], M, f"DontConvertAndWithdraw_{y}")
-        #  add_if_then_constraint(prob, f_roth[y], ira_to_roth[y], M, f"DontWithdrawAndConvert_{y}")
-        # or maybe this equivilent is slightly faster than the previous, but still slow?
-        #  add_min_constraints(prob, not_both_vars[y], f_roth[y], ira_to_roth[y], M, f"NotConvertAndWithdraw_{y}")
-        #  prob += not_both_vars[y] == 0, f"NotConvertAndWithdraw_Zero_{y}"
-        # Here's another "pretty" fix.  I'm not sure if any of these are needed.
-        #  prob += bal_roth[y] >= f_roth[y], f"RothWithdrawNonNeg_{y}" # Roth withdrawals must not exceed balance        
-
 
         # RMD Constraint (age >= 73)
         if age >= 73:
