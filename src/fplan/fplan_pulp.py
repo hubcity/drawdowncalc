@@ -241,7 +241,6 @@ def solve_pulp(args, S):
     f_ira = pulp.LpVariable.dicts("Retire_Withdraw_IRA", years_retire, lowBound=0)
     f_roth = pulp.LpVariable.dicts("Retire_Withdraw_Roth", years_retire, lowBound=0)
     ira_to_roth = pulp.LpVariable.dicts("Retire_IRA_to_Roth", years_retire, lowBound=0)
-    conversion_convenience_penalty = pulp.LpVariable.dicts("Conversion_Convenience_Penalty", years_retire, lowBound=0) # Penalty for converting to Roth
 
     # Balances (Beginning of Year)
     bal_save = pulp.LpVariable.dicts("Balance_Save", years_retire, lowBound=0)
@@ -255,6 +254,9 @@ def solve_pulp(args, S):
     state_tax = pulp.LpVariable.dicts("State_Tax", years_retire, lowBound=0)
     total_tax = pulp.LpVariable.dicts("Total_Tax", years_retire, lowBound=0)
     cgd = pulp.LpVariable.dicts("Capital_Gains_Distribution", years_retire, lowBound=0) # Capital Gains Distribution Amount
+    tax_jump_raw = pulp.LpVariable.dicts("Tax_Jump_Raw", years_retire, cat=pulp.LpContinuous) # Difference between tax years
+    tax_jump_up = pulp.LpVariable.dicts("Tax_Jump_Up", years_retire, lowBound=0) # Tax jump amount
+    tax_jump_down = pulp.LpVariable.dicts("Tax_Jump_Down", years_retire, lowBound=0) # Tax jump amount
 
     # Federal Tax Brackets
     std_deduction_amount = pulp.LpVariable.dicts("Std_Deduction_Amount", years_retire, lowBound=0)
@@ -290,16 +292,10 @@ def solve_pulp(args, S):
          nii_vars[y, 'over'] = pulp.LpVariable(f"NII_{y}_OverBracket", lowBound=0)
          nii_vars[y, 'cg_portion'] = pulp.LpVariable(f"NII_{y}_CGPortion", lowBound=0) # Amount subject to NII
 
-    not_both_vars = {}
-    for y in years_retire:
-        not_both_vars[y] = pulp.LpVariable(f"NotBoth_{y}", lowBound=0)
-
     # --- Objective Function ---
     if args.spend is None:
         # Maximize spending_floor,
-        # prob += spending_floor, "Maximize_Spending"
-        # Subtracting the convenience penalty from what we are trying to maximize is an UGLY hack, but, wow, does it work well!
-        prob += spending_floor - pulp.lpSum(conversion_convenience_penalty[y] for y in years_retire), "Maximize_Spending"
+        prob += spending_floor
         # Add constraint to ensure spending_floor is achievable minimum each year
         for y in years_retire:
              i_mul = S.i_rate ** y
@@ -312,8 +308,14 @@ def solve_pulp(args, S):
                        - S.expenses[y] - total_tax[y]) >= spending_floor * i_mul, f"Min_Spend_{y}"
 
     else:
-        # Minimize total lifetime taxes (discounted to today's dollars)
-        prob += pulp.lpSum(total_tax[y] * (1 / (S.i_rate ** y)) for y in years_retire), "Minimize_Taxes"
+        # Minimize taxes paid while attempting to keep year-to-year taxes as even as possible
+        # Keeping the tax jumps as small as possible makes the plan more user friendly.
+        # Optimizing other factors can still be mathematically correct, but that often results in a 
+        # plan that no person would ever use.
+        prob += pulp.lpSum(total_tax[y] * 1 / (S.i_rate ** y) for y in years_retire) \
+            + 0.1 * pulp.lpSum(tax_jump_up[y] * 1 / (S.i_rate ** y) for y in years_retire) \
+            + 0.1 * pulp.lpSum(tax_jump_down[y] * 1 / (S.i_rate ** y) for y in years_retire) \
+            , "Minimize_Taxes_And_Tax_Jumps"
 
         # Fix spending floor
         prob += spending_floor == float(args.spend), "Set_Spending_Floor"
@@ -372,7 +374,6 @@ def solve_pulp(args, S):
             prob += bal_roth[y] == last_bal_roth, f"Retire_InitRothBal_{y}"
         else:
             prob += bal_save[y] == (bal_save[y-1] - f_save[y-1]) * S.r_rate - cgd[y-1], f"Retire_SaveBal_{y}"
-            add_min_constraints(prob, conversion_convenience_penalty[y-1], ira_to_roth[y-1], 100, M, f"ConversionPenalty_{y}")
             prob += bal_ira[y] == (bal_ira[y-1] - f_ira[y-1] - ira_to_roth[y-1]) * S.r_rate, f"Retire_IRABal_{y}"
             prob += bal_roth[y] == (bal_roth[y-1] - f_roth[y-1] + ira_to_roth[y-1]) * S.r_rate, f"Retire_RothBal_{y}"
 
@@ -456,8 +457,7 @@ def solve_pulp(args, S):
 
         # Calculate Federal Tax (sum across brackets + penalty + CG tax + NII tax)
         fed_tax_calc = pulp.lpSum(tax_bracket_amount[y, j] * S.taxtable[j][0] for j in range(len(S.taxtable)))
-        if age < 59:
-             fed_tax_calc += f_ira[y] * 0.10 # 10% penalty on early IRA withdrawal
+
         # Add Capital Gains Tax (calculated below)
         fed_tax_calc += pulp.lpSum(cg_vars[y, j, 'cg_portion'] * S.cg_taxtable[j][0] for j in range(len(S.cg_taxtable)))
         # Add NII Tax (calculated below) - NII applies to the net investment income over threshold
@@ -467,7 +467,10 @@ def solve_pulp(args, S):
         if args.bumptax and args.bumpstart and y >= float(args.bumpstart):
              fed_tax_calc += pulp.lpSum(tax_bracket_amount[y, j] * (float(args.bumptax) / 100.0) for j in range(len(S.taxtable)))
 
-        prob += fed_tax[y] == fed_tax_calc, f"FedTaxCalc_{y}"
+        if age < 59:
+            prob += fed_tax[y] == fed_tax_calc + f_ira[y] * 0.1, f"FedTaxCalc_{y}"
+        else:
+            prob += fed_tax[y] == fed_tax_calc, f"FedTaxCalc_{y}"
 
 
         # State Taxable Income Calculation = Fed Taxable Income + Taxable Cap Gains - State Deduction
@@ -488,7 +491,10 @@ def solve_pulp(args, S):
 
         # Total Tax Calculation
         prob += total_tax[y] == fed_tax[y] + state_tax[y], f"TotalTaxCalc_{y}"
-
+        if (y > 0 and args.spend is not None):
+            prob += tax_jump_raw[y] == total_tax[y] - total_tax[y-1], f"TaxJumpRaw_{y}"
+            add_max_zero_constraints(prob, tax_jump_up[y], tax_jump_raw[y], M, f"TaxJumpUp_{y}")
+            add_max_zero_constraints(prob, tax_jump_down[y], - tax_jump_raw[y], M, f"TaxJumpDown_{y}")
 
         # Income Ceiling Constraint (Original A+b constraint)
         # fira + ira2roth + taxed_extra + basis*fsave + cgd <= ceiling
@@ -511,6 +517,7 @@ def solve_pulp(args, S):
             rmd_required = prev_year_end_ira / rmd_factor
             # Withdrawal must meet RMD: f_ira[y] >= rmd_required
             prob += f_ira[y] >= rmd_required, f"RMD_{y}"
+            prob += ira_to_roth[y] == 0, f"RMD_Convert_{y}" # No conversions if RMD is required
 
 
         # Roth Contribution Aging (5-year rule for conversions, contributions assumed available)
@@ -518,7 +525,7 @@ def solve_pulp(args, S):
         if age < 59: # Use 59 as threshold like original
              # Withdrawals (f_roth)) <= Basis
              # Basis = Initial Contributions + Work Contributions + Conversions older than 5 years
-             aged_conversions = pulp.lpSum(ira_to_roth[conv_y] for conv_y in range(max(0, y - 5))) # Sum conversions from >= 5 years ago
+             aged_conversions = pulp.lpSum(ira_to_roth[conv_y] for conv_y in range(max(0, y - 4))) # Sum conversions from >= 5 years ago
 
              # Calculate contributions basis available in year y
              initial_contrib_basis = 0
@@ -551,7 +558,7 @@ def solve_pulp(args, S):
          solver_options['msg'] = 0
 
     # Choose a solver (CBC is default, bundled with PuLP)
-    solver = pulp.PULP_CBC_CMD(threads=4,timeLimit=float(args.timelimit) if args.timelimit else 300, msg=args.verbose)
+    solver = pulp.PULP_CBC_CMD(threads=4,timeLimit=float(args.timelimit) if args.timelimit else 180, msg=args.verbose)
 
 
     print("Starting PuLP solver...")
@@ -580,11 +587,12 @@ def solve_pulp(args, S):
     }
 
     for y in years_retire:
+        adjust = min(ira_to_roth[y].varValue, f_roth[y].varValue) if y+S.startage > 59 else 0
         results['retire'][y] = {
-            'f_save': f_save[y].varValue,
-            'f_ira': f_ira[y].varValue + min(ira_to_roth[y].varValue, f_roth[y].varValue),
-            'f_roth': f_roth[y].varValue - min(ira_to_roth[y].varValue, f_roth[y].varValue),
-            'ira_to_roth': ira_to_roth[y].varValue - min(ira_to_roth[y].varValue, f_roth[y].varValue),
+            'f_save': f_save[y].varValue,           
+            'f_ira': f_ira[y].varValue + adjust,
+            'f_roth': f_roth[y].varValue - adjust,
+            'ira_to_roth': ira_to_roth[y].varValue - adjust,
             'bal_save': bal_save[y].varValue,
             'bal_ira': bal_ira[y].varValue,
             'bal_roth': bal_roth[y].varValue,
