@@ -254,9 +254,6 @@ def solve_pulp(args, S):
     state_tax = pulp.LpVariable.dicts("State_Tax", years_retire, lowBound=0)
     total_tax = pulp.LpVariable.dicts("Total_Tax", years_retire, lowBound=0)
     cgd = pulp.LpVariable.dicts("Capital_Gains_Distribution", years_retire, lowBound=0) # Capital Gains Distribution Amount
-    tax_jump_raw = pulp.LpVariable.dicts("Tax_Jump_Raw", years_retire, cat=pulp.LpContinuous) # Difference between tax years
-    tax_jump_up = pulp.LpVariable.dicts("Tax_Jump_Up", years_retire, lowBound=0) # Tax jump amount
-    tax_jump_down = pulp.LpVariable.dicts("Tax_Jump_Down", years_retire, lowBound=0) # Tax jump amount
 
     # Federal Tax Brackets
     std_deduction_amount = pulp.LpVariable.dicts("Std_Deduction_Amount", years_retire, lowBound=0)
@@ -292,10 +289,18 @@ def solve_pulp(args, S):
          nii_vars[y, 'over'] = pulp.LpVariable(f"NII_{y}_OverBracket", lowBound=0)
          nii_vars[y, 'cg_portion'] = pulp.LpVariable(f"NII_{y}_CGPortion", lowBound=0) # Amount subject to NII
 
-    # --- Objective Function ---
+    smooth = pulp.LpVariable.dicts("Smooth", range(S.numyr-1), lowBound=0)
+    inf_adj_tax = [total_tax[y] * 1 / (S.i_rate ** y) for y in years_retire]
+    for y in range(S.numyr-2):
+        prob += smooth[y] >= (inf_adj_tax[y+2] - inf_adj_tax[y+1]) - (inf_adj_tax[y+1] - inf_adj_tax[y]), f"Smooth_Tax_Jump_{y}"
+        prob += smooth[y] >= (inf_adj_tax[y+1] - inf_adj_tax[y]) - (inf_adj_tax[y+2] - inf_adj_tax[y+1]), f"Smooth_Tax_Jump_{y}_2"
+    # This assumes that no taxes were paid in the year before this year, which should encourage only necessary taxes in the first year
+    prob += smooth[S.numyr-2] >= (inf_adj_tax[1] - inf_adj_tax[0]) - (inf_adj_tax[0] - 0), f"Smooth_Tax_Jump_{S.numyr-2}"
+    prob += smooth[S.numyr-2] >= (inf_adj_tax[0] - 0) - (inf_adj_tax[1] - inf_adj_tax[0]), f"Smooth_Tax_Jump_{S.numyr-2}_2"
+
     if args.spend is None:
         # Maximize spending_floor,
-        prob += spending_floor
+        prob += spending_floor, "Maximize_Spending_Floor"
         # Add constraint to ensure spending_floor is achievable minimum each year
         for y in years_retire:
              i_mul = S.i_rate ** y
@@ -312,10 +317,16 @@ def solve_pulp(args, S):
         # Keeping the tax jumps as small as possible makes the plan more user friendly.
         # Optimizing other factors can still be mathematically correct, but that often results in a 
         # plan that no person would ever use.
-        prob += pulp.lpSum(total_tax[y] * 1 / (S.i_rate ** y) for y in years_retire) \
-            + 0.1 * pulp.lpSum(tax_jump_up[y] * 1 / (S.i_rate ** y) for y in years_retire) \
-            + 0.1 * pulp.lpSum(tax_jump_down[y] * 1 / (S.i_rate ** y) for y in years_retire) \
+
+        prob += 0.1 * pulp.lpSum(total_tax[y] * 1 / (S.i_rate ** y) for y in years_retire) \
+            + 0.01 * pulp.lpSum(smooth[y] for y in range(S.numyr-2)) \
+            - 1.0 * (bal_roth[S.numyr-1] - f_roth[S.numyr-1]) \
+            - 1.0 * (bal_ira[S.numyr-1] - f_ira[S.numyr-1]) \
             , "Minimize_Taxes_And_Tax_Jumps"
+
+#        prob += 0.1 * pulp.lpSum(total_tax[y] * 1 / (S.i_rate ** y) for y in years_retire)
+#        prob += - 1.0 * (bal_roth[S.numyr-1] - f_roth[S.numyr-1]) \
+#            - 1.0 * (bal_ira[S.numyr-1] - f_ira[S.numyr-1]) \
 
         # Fix spending floor
         prob += spending_floor == float(args.spend), "Set_Spending_Floor"
@@ -347,6 +358,7 @@ def solve_pulp(args, S):
     # --- Retirement Year Constraints ---
     for y in years_retire:
         i_mul = S.i_rate ** y
+        tax_i_mul = (S.i_rate - 0.00) ** y
         age = y + S.retireage
 
         # Calculate basis_percent (as used in state tax, NII, CG calcs)
@@ -391,7 +403,7 @@ def solve_pulp(args, S):
 
         # --- Non-investment Income Tax Calculations ---
         # Limit amounts in std deduction and brackets
-        prob += std_deduction_amount[y] <= S.stded * i_mul, f"MaxStdDed_{y}"
+        prob += std_deduction_amount[y] <= S.stded * tax_i_mul, f"MaxStdDed_{y}"
 
         # How much of the standard deduction is taken up by the non_investment_income?
         add_min_constraints(prob, standard_deduction_vars[y, 'income_portion'], std_deduction_amount[y], non_investment_income[y], M, f"StdDedIncomePortion_{y}")
@@ -399,7 +411,7 @@ def solve_pulp(args, S):
         prob += standard_deduction_vars[y, 'cg_portion'] <= std_deduction_amount[y] - standard_deduction_vars[y, 'income_portion'], f"StdDedCGPortionLimit_{y}"
 
         for j, (rate, low, high) in enumerate(S.taxtable):
-             bracket_size = (high - low) * i_mul if high != float('inf') else M # Use Big M for unbounded top bracket
+             bracket_size = (high - low) * tax_i_mul if high != float('inf') else M # Use Big M for unbounded top bracket
              prob += tax_bracket_amount[y, j] <= bracket_size, f"MaxTaxBracket_{y}_{j}"
 
         # Sum of std_deduction plus the amounts in brackets must equal total non_investment taxable income
@@ -410,8 +422,8 @@ def solve_pulp(args, S):
         # --- CG Tax Bracket Calculations ---
         taxable_income_eff = non_investment_income[y] - standard_deduction_vars[y, 'income_portion'] # Non-investment Income above std deduction
         for j, (rate, low, high) in enumerate(S.cg_taxtable):
-             low_adj = low * i_mul
-             high_adj = high * i_mul if high != float('inf') else M
+             low_adj = low * tax_i_mul
+             high_adj = high * tax_i_mul if high != float('inf') else M
              bracket_size = high_adj - low_adj
 
              # how much of this CG bracket was taken up by regular income
@@ -479,9 +491,9 @@ def solve_pulp(args, S):
 
         # State Tax Calculation
         add_min_constraints(prob, state_std_deduction_used[y], state_std_deduction_amount[y], state_taxable_income[y], M, f"StateStdDedUsed_{y}")
-        prob += state_std_deduction_amount[y] <= S.state_stded * i_mul, f"MaxStateStdDed_{y}"
+        prob += state_std_deduction_amount[y] <= S.state_stded * tax_i_mul, f"MaxStateStdDed_{y}"
         for j, (rate, low, high) in enumerate(S.state_taxtable):
-             bracket_size = (high - low) * i_mul if high != float('inf') else M
+             bracket_size = (high - low) * tax_i_mul if high != float('inf') else M
              prob += state_tax_bracket_amount[y, j] <= bracket_size, f"MaxStateTaxBracket_{y}_{j}"
 
         prob += state_std_deduction_used[y] + pulp.lpSum(state_tax_bracket_amount[y, j] for j in range(len(S.state_taxtable))) == state_taxable_income[y], f"SumStateTaxBrackets_{y}"
@@ -491,10 +503,6 @@ def solve_pulp(args, S):
 
         # Total Tax Calculation
         prob += total_tax[y] == fed_tax[y] + state_tax[y], f"TotalTaxCalc_{y}"
-        if (y > 0 and args.spend is not None):
-            prob += tax_jump_raw[y] == total_tax[y] - total_tax[y-1], f"TaxJumpRaw_{y}"
-            add_max_zero_constraints(prob, tax_jump_up[y], tax_jump_raw[y], M, f"TaxJumpUp_{y}")
-            add_max_zero_constraints(prob, tax_jump_down[y], - tax_jump_raw[y], M, f"TaxJumpDown_{y}")
 
         # Income Ceiling Constraint (Original A+b constraint)
         # fira + ira2roth + taxed_extra + basis*fsave + cgd <= ceiling
@@ -517,7 +525,7 @@ def solve_pulp(args, S):
             rmd_required = prev_year_end_ira / rmd_factor
             # Withdrawal must meet RMD: f_ira[y] >= rmd_required
             prob += f_ira[y] >= rmd_required, f"RMD_{y}"
-            prob += ira_to_roth[y] == 0, f"RMD_Convert_{y}" # No conversions if RMD is required
+            # prob += ira_to_roth[y] == 0, f"RMD_Convert_{y}" # No conversions if RMD is required
 
 
         # Roth Contribution Aging (5-year rule for conversions, contributions assumed available)

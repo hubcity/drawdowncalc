@@ -1,0 +1,101 @@
+# age range to simulate
+startage = 65   # 2026 is the year I will be 55.5 so to calc for 2026, put 55
+endage = 67
+
+inflation = 0.0
+returns = 100.0
+
+
+[taxes]
+taxrates = [[0,      10],
+            [25_000, 20],
+            [30_000, 30],
+            [100_000, 40],
+            [750_000, 50]]
+stded = 0            # standard deduction
+
+nii = 20_000_000
+
+
+
+# after tax savings accounts
+[aftertax]
+bal = 0
+basis = 0          # for capital gains tax
+distributions = 0.0     # % yearly cap-gains distributions
+
+
+# pre-tax IRA accounts
+[IRA]
+bal = 500_000
+
+
+# roth IRA accounts
+[roth]
+bal = 0
+
+# record when contributions were made to this account.
+# before age 59 this is used to know when previous contributions can be
+# made. Include IRA->Roth conversions in this list.
+# contributions = [[45, 100]]
+
+
+# Maximize yearly spending
+# python3 src/fplan/fplan_pulp.py madness.toml 
+# Starting PuLP solver...
+# Solver Status: Optimal
+# Solver Status: Optimal
+# Yearly spending floor (today's dollars) <= 215448
+#
+# age  bSAVE  wSAVE   bIRA   wIRA  bROTH  wROTH  IRA2R TxRate    Tax  Spend    CGD
+#  65:      0      0    500    380      0      0     70     40    165    215      0
+#  66:      0      0     99     99    141    141      0     30     24    215      0
+#
+# Total spending (today's dollars): 430897
+# Total tax (today's dollars): 188955
+# Avg Tax Rate: 30.5%
+
+# python3 src/fplan/fplan_pulp.py --spend 215448  madness.toml 
+# Starting PuLP solver...
+# Solver Status: Optimal
+# Solver Status: Optimal
+# Yearly spending floor (today's dollars) <= 215448
+#
+# age  bSAVE  wSAVE   bIRA   wIRA  bROTH  wROTH  IRA2R TxRate    Tax  Spend    CGD
+#  65:      0      0    500    380      0      0     70     40    165    215      0
+#  66:      0      0     99     99    141    141      0     30     24    215      0
+#
+# Total spending (today's dollars): 430896
+# Total tax (today's dollars): 188954
+# Avg Tax Rate: 30.5%
+
+
+# Minimize Total Taxes
+# python3 src/fplan/fplan_pulp.py --spend 200000 madness.toml 
+# Starting PuLP solver...
+# Solver Status: Optimal
+# Solver Status: Optimal
+# Yearly spending floor (today's dollars) <= 200000
+#
+# age  bSAVE  wSAVE   bIRA   wIRA  bROTH  wROTH  IRA2R TxRate    Tax  Spend    CGD
+#  65:      0      0    500    365      0      0     87     40    165    200      0
+#  66:      0      0     95     30    174    174      0     20      3    200      0
+#
+# Total spending (today's dollars): 400000
+# Total tax (today's dollars): 168887
+# Avg Tax Rate: 29.7%
+
+
+# Maximize Amount Remaining
+# Starting PuLP solver...
+# Solver Status: Optimal
+# Solver Status: Optimal
+# Yearly spending floor (today's dollars) <= 200000 madness.toml
+#
+# age  bSAVE  wSAVE   bIRA   wIRA  bROTH  wROTH  IRA2R TxRate    Tax  Spend    CGD
+#  65:      0      0    500    349      0      0     63     40    149    200      0
+#  66:      0      0    176     99    125    125      0     30     24    200      0
+#
+# Total spending (today's dollars): 400000
+# Total tax (today's dollars): 173507
+# Avg Tax Rate: 30.3%
