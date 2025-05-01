@@ -166,6 +166,17 @@ def add_min_constraints(prob, result_var, a_var, b_var, M, base_name):
     prob += b_var <= result_var + M * (1 - y), f"{base_name}_min_ge_b"
 
 
+# Helper function to implement max(a, b) using Big M
+# result = max(a,b) -> result >= a, result >= b
+# result <= a + M*y, result <= b + M*(1-y) where y is binary
+def add_max_constraints(prob, result_var, a_var, b_var, M, base_name):
+    y = pulp.LpVariable(f"{base_name}_max_ind", cat=pulp.LpBinary)
+    prob += result_var >= a_var, f"{base_name}_max_ge_a"
+    prob += result_var >= b_var, f"{base_name}_max_ge_b"
+    prob += result_var <= a_var + M * y, f"{base_name}_max_le_a"
+    prob += result_var <= b_var + M * (1 - y), f"{base_name}_max_le_b"
+
+
 def add_if_then_constraint(prob, condition_expr, consequence_expr, M, base_name):
     """
     Adds constraints to model: IF condition_expr > 0 THEN consequence_expr <= 0.
@@ -260,6 +271,7 @@ def prepare_pulp(args, S):
     fed_tax_nii = pulp.LpVariable.dicts("Fed_Tax_NII", years_retire, lowBound=0) # Federal Tax on NII
     fed_tax_early_withdrawal = pulp.LpVariable.dicts("Fed_Tax_Early_Withdrawal", years_retire, lowBound=0) # Federal Tax on Early Withdrawal
     required_RMD = pulp.LpVariable.dicts("Required_RMD", years_retire, lowBound=0) # Required Minimum Distribution Amount
+    excess = pulp.LpVariable.dicts("Excess", years_retire, lowBound=0) # Excess Withdrawal
 
     # Federal Tax Brackets
     std_deduction_amount = pulp.LpVariable.dicts("Std_Deduction_Amount", years_retire, lowBound=0)
@@ -309,14 +321,17 @@ def prepare_pulp(args, S):
          spend_cgd = cgd[y-1] if y > 0 else 0 # Cap gains from *last* year are spendable
          # Spending = Withdrawals + Income - Expenses - Taxes
          # We want spending_floor <= yearly spendable amount / inflation multiplier
-         prob += (f_save[y] + spend_cgd + f_ira[y] + f_roth[y] + S.income[y] \
-                   - S.expenses[y] - total_tax[y]) == spending_floor * i_mul, f"Min_Spend_{y}"
+         total_withdrawals = f_save[y] + spend_cgd + f_ira[y] + f_roth[y] + S.income[y] - S.expenses[y]
+         prob += total_withdrawals >= total_tax[y] + spending_floor * i_mul, f"Min_Spend_{y}"
+         prob += excess[y] == total_withdrawals - (total_tax[y] + spending_floor * i_mul)
+#         prob += excess[y] == 0
+         # add_max_constraints(prob, excess[y], raw_excess, 0, M, f"Excess_{y}")
 
     if args.min_taxes is not None:
         prob += spending_floor == float(args.min_taxes), "Set_Spending_Floor"
         objectives = [- 1 * pulp.lpSum(total_tax[y] * 1 / (S.i_rate ** y) for y in years_retire)]
     elif args.max_assets is not None:
-        prob += spending_floor >= float(args.max_assets), "Set_Spending_Floor"
+        prob += spending_floor == float(args.max_assets), "Set_Spending_Floor"
         objectives = [+ 1.0 * (bal_roth[S.numyr-1] - f_roth[S.numyr-1]) \
                       + 1.0 * (bal_ira[S.numyr-1] - f_ira[S.numyr-1]) \
                       + 1.0 * (bal_save[S.numyr-1] - f_save[S.numyr-1]),
@@ -359,7 +374,7 @@ def prepare_pulp(args, S):
             prob += bal_ira[y] == last_bal_ira, f"InitIRABal_{y}"
             prob += bal_roth[y] == last_bal_roth, f"InitRothBal_{y}"
         else:
-            prob += bal_save[y] == (bal_save[y-1] - f_save[y-1]) * S.r_rate - cgd[y-1], f"SaveBal_{y}"
+            prob += bal_save[y] == (bal_save[y-1] - f_save[y-1]) * S.r_rate - cgd[y-1] + excess[y-1], f"SaveBal_{y}"
             prob += bal_ira[y] == (bal_ira[y-1] - f_ira[y-1] - ira_to_roth[y-1]) * S.r_rate, f"IRABal_{y}"
             prob += bal_roth[y] == (bal_roth[y-1] - f_roth[y-1] + ira_to_roth[y-1]) * S.r_rate, f"RothBal_{y}"
 
@@ -536,7 +551,7 @@ def prepare_pulp(args, S):
     if final_year >=0 :
         # EOY = (BOY - Withdrawals + Conversions) * Growth + CGD
 
-        prob += (bal_save[final_year] - f_save[final_year]) * S.r_rate + cgd[final_year] >= 0, "FinalSaveNonNeg"
+        prob += (bal_save[final_year] - f_save[final_year]) * S.r_rate >= 0, "FinalSaveNonNeg"
         prob += (bal_ira[final_year] - f_ira[final_year] - ira_to_roth[final_year]) * S.r_rate >= 0, "FinalIRANonNeg"
         prob += (bal_roth[final_year] - f_roth[final_year] + ira_to_roth[final_year]) * S.r_rate >= 0, "FinalRothNonNeg"
 
@@ -564,7 +579,7 @@ def retrieve_results(args, S, prob):
     all_values = { v.name: v.varValue for v in prob.variables() }
     all_names = ['Balance_Save', 'Withdraw_Save', 'Balance_IRA', 'Withdraw_IRA', 'Balance_Roth', 'Withdraw_Roth', 'IRA_to_Roth',
                   'Ordinary_Income', 'State_Ordinary_Income', 'Fed_Tax', 'State_Tax', 'Total_Tax', 'Capital_Gains_Distribution',
-                  'Std_Deduction_Amount', 'State_Std_Deduction_Amount']
+                  'Std_Deduction_Amount', 'State_Std_Deduction_Amount', 'Excess']
 #    # Extract results into a dictionary or similar structure for printing
     results = {
         'spending_floor': all_values['SpendingFloor'],
@@ -602,7 +617,7 @@ def print_ascii(results, S):
 
     print((" age" + " %6s" * 11) % # Adjusted column count
           ("bSAVE", "wSAVE", "bIRA", "wIRA", "bROTH", "wROTH", "IRA2R",
-           "TxRate", "Tax", "Spend", "CGD")) # b=balance, w=withdrawal/conversion
+           "Excess", "Tax", "Spend", "CGD")) # b=balance, w=withdrawal/conversion
     ttax = 0.0
     tspend = 0.0 # Total spending in today's dollars
 
@@ -626,7 +641,7 @@ def print_ascii(results, S):
         std_ded_amount = r_res.get('Std_Deduction_Amount',0)
         state_taxable_inc = r_res.get('State_Ordinary_Income', 0)
         state_std_ded_amount = r_res.get('State_Std_Deduction_Amount',0)
-
+        excess = r_res.get('Excess', 0)
 
         # Calculate effective tax rate (simplified)
         inc_above_std = max(0, taxable_inc - std_ded_amount)
@@ -658,7 +673,7 @@ def print_ascii(results, S):
                bal_save / div_by, f_save / div_by,
                bal_ira / div_by, f_ira / div_by,
                bal_roth / div_by, f_roth / div_by, ira2roth / div_by,
-               rate * 100, tax / div_by, spending / div_by, cgd / div_by))
+               excess / div_by, tax / div_by, spending / div_by, cgd / div_by))
 
     print("\nTotal spending (today's dollars): %.0f" % tspend)
     print("Total tax (today's dollars): %.0f" % ttax)
