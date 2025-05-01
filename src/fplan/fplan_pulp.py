@@ -224,7 +224,7 @@ def add_if_then_constraint(prob, condition_expr, consequence_expr, M, base_name)
 # Minimize: c^T * x -> Defined using PuLP objective
 # Subject to: A_ub * x <= b_ub -> Defined using PuLP constraints
 # Subject to: A_eq * x == b_eq -> Defined using PuLP constraints
-def solve_pulp(args, S):
+def prepare_pulp(args, S):
     # Define the problem
     prob = pulp.LpProblem("FinancialPlan", pulp.LpMaximize)
     objectives = []
@@ -538,56 +538,31 @@ def solve_pulp(args, S):
     # Choose a solver (CBC is default, bundled with PuLP)
     solver = pulp.PULP_CBC_CMD(threads=4,timeLimit=float(args.timelimit) if args.timelimit else 180, msg=args.verbose)
 
-#    return prob, solver
+    return prob, solver, objectives
 
-    print("Starting PuLP solver...")
-    for relTol in [1, 0.9999, 0.999, 0.99]:
-        print(f"Searching solution with relTol={relTol}")
-        prob.sequentialSolve(objectives, relativeTols=[relTol]*len(objectives), solver=solver)
-        status = pulp.LpStatus[prob.status]
-        if status == "Optimal":
-            print(f"Found solution with relTol={relTol}")
-            break
-        else:
-            print(f"Solver status: {status} with relTol={relTol}")
-            print("Trying with a less strict tolerance...")
-
-    # --- Process Results ---
-    print(f"Solver Status: {status}")
-#    for v in prob.variables():  
-#        print(v.name, "=", v.varValue)
-
-    if prob.status not in [pulp.LpStatusOptimal, pulp.LpStatusNotSolved]: # Not Solved can occur with time limit but might have a feasible solution
-         print("Solver did not find an optimal solution.")
-         if prob.status == pulp.LpStatusInfeasible:
-              print("Problem is infeasible.")
-         elif prob.status == pulp.LpStatusUnbounded:
-               print("Problem is unbounded.")
-         # Consider returning None or raising an error if no solution found
-         # For now, return None, handle this in main
-         return None, None, None # Indicate failure
-
-
+def retrieve_results(args, S, prob):
+    status = pulp.LpStatus[prob.status]
     all_values = { v.name: v.varValue for v in prob.variables() }
     all_names = ['Balance_Save', 'Withdraw_Save', 'Balance_IRA', 'Withdraw_IRA', 'Balance_Roth', 'Withdraw_Roth', 'IRA_to_Roth',
                   'Taxable_Income', 'State_Taxable_Income', 'Fed_Tax', 'State_Tax', 'Total_Tax', 'Capital_Gains_Distribution',
                   'Std_Deduction_Amount', 'State_Std_Deduction_Amount']
 #    # Extract results into a dictionary or similar structure for printing
     results = {
-        'spending_floor': spending_floor.varValue,
+        'spending_floor': all_values['SpendingFloor'],
         'retire': {},
         'status': status
     }
+    years_retire = range(S.numyr)
 
     for y in years_retire:
-        adjust = min(ira_to_roth[y].varValue, f_roth[y].varValue) if y+S.startage > 59 else 0
+        adjust = min(all_values[f'IRA_to_Roth_{y}'], all_values[f'Withdraw_Roth_{y}']) if y+S.startage > 59 else 0
         results['retire'][y] = {
             a: all_values[f'{a}_{y}'] for a in all_names
         }
-        results['retire'][y]['IRA_to_Roth'] = ira_to_roth[y].varValue - adjust
-        results['retire'][y]['Withdraw_Roth'] = f_roth[y].varValue - adjust
-        results['retire'][y]['Withdraw_IRA'] = f_ira[y].varValue + adjust
-        results['retire'][y]['CDG_Spendable'] = cgd[y-1].varValue if y > 0 else 0
+        results['retire'][y]['IRA_to_Roth'] = results['retire'][y]['IRA_to_Roth'] - adjust
+        results['retire'][y]['Withdraw_Roth'] = results['retire'][y]['Withdraw_Roth'] - adjust
+        results['retire'][y]['Withdraw_IRA'] = results['retire'][y]['Withdraw_IRA'] + adjust
+        results['retire'][y]['CGD_Spendable'] = results['retire'][y-1]['Capital_Gains_Distribution'] if y > 0 else 0
             # 'f_save': all_values[f'Withdraw_Save_{y}'],           
             # 'f_ira': f_ira[y].varValue + adjust,
             # 'f_roth': f_roth[y].varValue - adjust,
@@ -668,7 +643,7 @@ def print_ascii(results, S):
         f_roth = r_res.get('Withdraw_Roth', 0)
         ira2roth = r_res.get('IRA_to_Roth', 0)
         cgd = r_res.get('Capital_Gains_Distribution', 0)
-        cgd_spendable = r_res.get('CDG_Spendable', 0)
+        cgd_spendable = r_res.get('CGD_Spendable', 0)
         tax = r_res.get('Total_Tax', 0)
         taxable_inc = r_res.get('Taxable_Income',0)
         std_ded_amount = r_res.get('Std_Deduction_Amount',0)
@@ -779,8 +754,35 @@ def main():
     S.load_file(args.conffile)
 
     # Solve using PuLP
-    results, S_out, prob = solve_pulp(args, S) # Get S back in case it was modified (it shouldn't be here)
+    print("Starting PuLP solver...")
+    for relTol in [1, 0.9999, 0.999, 0.99]:
+        prob, solver, objectives = prepare_pulp(args, S) # Prepare the problem for solving
+        print(f"Searching solution with relTol={relTol}")
+        prob.sequentialSolve(objectives, relativeTols=[relTol]*len(objectives), solver=solver)
+        status = pulp.LpStatus[prob.status]
+        if status == "Optimal":
+            print(f"Found solution with relTol={relTol}")
+            break
+        else:
+            print(f"Solver status: {status} with relTol={relTol}")
+            print("Trying with a less strict tolerance...")
 
+    # --- Process Results ---
+    print(f"Solver Status: {status}")
+#    for v in prob.variables():  
+#        print(v.name, "=", v.varValue)
+
+    if prob.status not in [pulp.LpStatusOptimal, pulp.LpStatusNotSolved]: # Not Solved can occur with time limit but might have a feasible solution
+         print("Solver did not find an optimal solution.")
+         if prob.status == pulp.LpStatusInfeasible:
+              print("Problem is infeasible.")
+         elif prob.status == pulp.LpStatusUnbounded:
+               print("Problem is unbounded.")
+         # Consider returning None or raising an error if no solution found
+         # For now, return None, handle this in main
+         return None, None, None # Indicate failure
+
+    results, S_out, prob = retrieve_results(args, S, prob)
     if results is None:
         print("Failed to solve the problem.")
         # Optionally print problem formulation if verbose/debugging
