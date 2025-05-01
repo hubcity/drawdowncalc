@@ -112,7 +112,7 @@ class Data:
         EXP = [0] * self.numyr
         TAX = [0] * self.numyr
         STATE_TAX = [0] * self.numyr
-        CEILING = [5_000_000] * self.numyr # Use infinity as default ceiling
+        CEILING = [50_000_000] * self.numyr
 
         for k,v in S.get('expense', {}).items():
             for age in agelist(v['age']):
@@ -165,16 +165,6 @@ def add_min_constraints(prob, result_var, a_var, b_var, M, base_name):
     prob += a_var <= result_var + M * y, f"{base_name}_min_ge_a"
     prob += b_var <= result_var + M * (1 - y), f"{base_name}_min_ge_b"
 
-# Helper function to implement max(0, x) using Big M
-# result = max(0, x) -> result >= 0, result >= x
-# x <= result + M*y, 0 <= result + M*(1-y) -> result >= x - M*y, result >= -M(1-y)
-# result <= x + M*(1-y), result <= 0 + M*y -> result <= x + M(1-y), result <= M*y
-def add_max_zero_constraints(prob, result_var, x_var, M, base_name):
-    y = pulp.LpVariable(f"{base_name}_max0_ind", cat=pulp.LpBinary)
-    prob += result_var >= 0, f"{base_name}_max0_ge_0"
-    prob += result_var >= x_var, f"{base_name}_max0_ge_x"
-    prob += result_var <= x_var + M * (1 - y), f"{base_name}_max0_le_x"
-    prob += result_var <= M * y, f"{base_name}_max0_le_M"
 
 def add_if_then_constraint(prob, condition_expr, consequence_expr, M, base_name):
     """
@@ -224,9 +214,10 @@ def add_if_then_constraint(prob, condition_expr, consequence_expr, M, base_name)
 # Minimize: c^T * x -> Defined using PuLP objective
 # Subject to: A_ub * x <= b_ub -> Defined using PuLP constraints
 # Subject to: A_eq * x == b_eq -> Defined using PuLP constraints
-def solve_pulp(args, S):
+def prepare_pulp(args, S):
     # Define the problem
-    prob = pulp.LpProblem("FinancialPlan", pulp.LpMaximize if args.spend is None else pulp.LpMinimize)
+    prob = pulp.LpProblem("FinancialPlan", pulp.LpMaximize)
+    objectives = []
 
     # --- Define Variables ---
     years_retire = range(S.numyr)
@@ -237,10 +228,10 @@ def solve_pulp(args, S):
 
     # --- Retirement Year Variables ---
     # Withdrawals / Conversions
-    f_save = pulp.LpVariable.dicts("Retire_Withdraw_Save", years_retire, lowBound=0)
-    f_ira = pulp.LpVariable.dicts("Retire_Withdraw_IRA", years_retire, lowBound=0)
-    f_roth = pulp.LpVariable.dicts("Retire_Withdraw_Roth", years_retire, lowBound=0)
-    ira_to_roth = pulp.LpVariable.dicts("Retire_IRA_to_Roth", years_retire, lowBound=0)
+    f_save = pulp.LpVariable.dicts("Withdraw_Save", years_retire, lowBound=0)
+    f_ira = pulp.LpVariable.dicts("Withdraw_IRA", years_retire, lowBound=0)
+    f_roth = pulp.LpVariable.dicts("Withdraw_Roth", years_retire, lowBound=0)
+    ira_to_roth = pulp.LpVariable.dicts("IRA_to_Roth", years_retire, lowBound=0)
 
     # Balances (Beginning of Year)
     bal_save = pulp.LpVariable.dicts("Balance_Save", years_retire, lowBound=0)
@@ -248,12 +239,27 @@ def solve_pulp(args, S):
     bal_roth = pulp.LpVariable.dicts("Balance_Roth", years_retire, lowBound=0)
 
     # Tax Calculation Variables
-    non_investment_income = pulp.LpVariable.dicts("Taxable_Income", years_retire, lowBound=0)
-    state_taxable_income = pulp.LpVariable.dicts("State_Taxable_Income", years_retire, lowBound=0)
+    ordinary_income = pulp.LpVariable.dicts("Ordinary_Income", years_retire, lowBound=0)
+    state_ordinary_income = pulp.LpVariable.dicts("State_Ordinary_Income", years_retire, lowBound=0)
     fed_tax = pulp.LpVariable.dicts("Fed_Tax", years_retire, lowBound=0)
     state_tax = pulp.LpVariable.dicts("State_Tax", years_retire, lowBound=0)
     total_tax = pulp.LpVariable.dicts("Total_Tax", years_retire, lowBound=0)
     cgd = pulp.LpVariable.dicts("Capital_Gains_Distribution", years_retire, lowBound=0) # Capital Gains Distribution Amount
+    total_cap_gains = pulp.LpVariable.dicts("Total_Capital_Gains", years_retire, lowBound=0) # Total Capital Gains Amount
+
+    # Additional holding variables to return with the answer
+    fed_agi = pulp.LpVariable.dicts("Fed_AGI", years_retire, lowBound=0) # Federal AGI
+    brokerage_cg = pulp.LpVariable.dicts("Brokerage_CG", years_retire, lowBound=0) # Capital Gains from Brokerage Account
+    taxable_social_security = pulp.LpVariable.dicts("Taxable_Social_Security", years_retire, lowBound=0) # Taxable Social Security Amount
+    state_agi = pulp.LpVariable.dicts("State_AGI", years_retire, lowBound=0) # State AGI
+    state_IRA_taxable = pulp.LpVariable.dicts("State_IRA_Taxable", years_retire, lowBound=0) # State Taxable IRA Amount
+    state_taxable_social_security = pulp.LpVariable.dicts("State_Taxable_Social_Security", years_retire, lowBound=0) # State Taxable Social Security Amount
+    state_tax_ordinary_income = pulp.LpVariable.dicts("State_Tax_Ordinary_Income", years_retire, lowBound=0) # State Tax on Ordinary Income
+    fed_tax_ordinary_income = pulp.LpVariable.dicts("Fed_Tax_Ordinary_Income", years_retire, lowBound=0) # Federal Tax on Ordinary Income
+    fed_tax_cg = pulp.LpVariable.dicts("Fed_Tax_CG", years_retire, lowBound=0) # Federal Tax on Capital Gains
+    fed_tax_nii = pulp.LpVariable.dicts("Fed_Tax_NII", years_retire, lowBound=0) # Federal Tax on NII
+    fed_tax_early_withdrawal = pulp.LpVariable.dicts("Fed_Tax_Early_Withdrawal", years_retire, lowBound=0) # Federal Tax on Early Withdrawal
+    required_RMD = pulp.LpVariable.dicts("Required_RMD", years_retire, lowBound=0) # Required Minimum Distribution Amount
 
     # Federal Tax Brackets
     std_deduction_amount = pulp.LpVariable.dicts("Std_Deduction_Amount", years_retire, lowBound=0)
@@ -289,76 +295,44 @@ def solve_pulp(args, S):
          nii_vars[y, 'over'] = pulp.LpVariable(f"NII_{y}_OverBracket", lowBound=0)
          nii_vars[y, 'cg_portion'] = pulp.LpVariable(f"NII_{y}_CGPortion", lowBound=0) # Amount subject to NII
 
-    smooth = pulp.LpVariable.dicts("Smooth", range(S.numyr-1), lowBound=0)
+    smooth = pulp.LpVariable.dicts("Smooth", range(S.numyr-1))
     inf_adj_tax = [total_tax[y] * 1 / (S.i_rate ** y) for y in years_retire]
     for y in range(S.numyr-2):
         prob += smooth[y] >= (inf_adj_tax[y+2] - inf_adj_tax[y+1]) - (inf_adj_tax[y+1] - inf_adj_tax[y]), f"Smooth_Tax_Jump_{y}"
         prob += smooth[y] >= (inf_adj_tax[y+1] - inf_adj_tax[y]) - (inf_adj_tax[y+2] - inf_adj_tax[y+1]), f"Smooth_Tax_Jump_{y}_2"
     # This assumes that no taxes were paid in the year before this year, which should encourage only necessary taxes in the first year
-    prob += smooth[S.numyr-2] >= (inf_adj_tax[1] - inf_adj_tax[0]) - (inf_adj_tax[0] - 0), f"Smooth_Tax_Jump_{S.numyr-2}"
-    prob += smooth[S.numyr-2] >= (inf_adj_tax[0] - 0) - (inf_adj_tax[1] - inf_adj_tax[0]), f"Smooth_Tax_Jump_{S.numyr-2}_2"
+    prob += smooth[S.numyr-2] >= (inf_adj_tax[1] - inf_adj_tax[0]) - (inf_adj_tax[0] - inf_adj_tax[0]), f"Smooth_Tax_Jump_{S.numyr-2}"
+    prob += smooth[S.numyr-2] >= (inf_adj_tax[0] - inf_adj_tax[0]) - (inf_adj_tax[1] - inf_adj_tax[0]), f"Smooth_Tax_Jump_{S.numyr-2}_2"
 
-    if args.spend is None:
-        # Maximize spending_floor,
-        prob += spending_floor, "Maximize_Spending_Floor"
-        # Add constraint to ensure spending_floor is achievable minimum each year
-        for y in years_retire:
-             i_mul = S.i_rate ** y
+    for y in years_retire:
+         i_mul = S.i_rate ** y
+         spend_cgd = cgd[y-1] if y > 0 else 0 # Cap gains from *last* year are spendable
+         # Spending = Withdrawals + Income - Expenses - Taxes
+         # We want spending_floor <= yearly spendable amount / inflation multiplier
+         prob += (f_save[y] + spend_cgd + f_ira[y] + f_roth[y] + S.income[y] \
+                   - S.expenses[y] - total_tax[y]) == spending_floor * i_mul, f"Min_Spend_{y}"
 
-             spend_cgd = cgd[y-1] if y > 0 else 0 # Cap gains from *last* year are spendable
-
-             # Spending = Withdrawals + Income - Expenses - Taxes
-             # We want spending_floor <= yearly spendable amount / inflation multiplier
-             prob += (f_save[y] + spend_cgd + f_ira[y] + f_roth[y] + S.income[y] \
-                       - S.expenses[y] - total_tax[y]) >= spending_floor * i_mul, f"Min_Spend_{y}"
-
-    else:
-        # Minimize taxes paid while attempting to keep year-to-year taxes as even as possible
-        # Keeping the tax jumps as small as possible makes the plan more user friendly.
-        # Optimizing other factors can still be mathematically correct, but that often results in a 
-        # plan that no person would ever use.
-
-        prob += 0.1 * pulp.lpSum(total_tax[y] * 1 / (S.i_rate ** y) for y in years_retire) \
-            + 0.01 * pulp.lpSum(smooth[y] for y in range(S.numyr-2)) \
-            - 1.0 * (bal_roth[S.numyr-1] - f_roth[S.numyr-1]) \
-            - 1.0 * (bal_ira[S.numyr-1] - f_ira[S.numyr-1]) \
-            , "Minimize_Taxes_And_Tax_Jumps"
-
-#        prob += 0.1 * pulp.lpSum(total_tax[y] * 1 / (S.i_rate ** y) for y in years_retire)
-#        prob += - 1.0 * (bal_roth[S.numyr-1] - f_roth[S.numyr-1]) \
-#            - 1.0 * (bal_ira[S.numyr-1] - f_ira[S.numyr-1]) \
-
-        # Fix spending floor
-        prob += spending_floor == float(args.spend), "Set_Spending_Floor"
-        # Apply fixed spending constraint yearly
-        for y in years_retire:
-             i_mul = S.i_rate ** y
-             spend_cgd = cgd[y-1] if y > 0 else 0
-             prob += (f_save[y] + spend_cgd + f_ira[y] + f_roth[y] + S.income[y] \
-                       - S.expenses[y] - total_tax[y]) == spending_floor * i_mul, f"Fixed_Spend_{y}"
-
-
-    if args.roth is not None:
-        # Calculate final year Roth balance and constrain it
-        final_year = S.numyr - 1
-        prob += (bal_roth[final_year] * S.r_rate \
-                 - f_roth[final_year] * S.r_rate \
-                 + ira_to_roth[final_year] * S.r_rate \
-                 ) >= float(args.roth) * (S.i_rate ** S.numyr), "Final_Roth_Value" # Inflated target
-        
-    if args.ira is not None:
-        # Calculate final year ira balance and constrain it
-        final_year = S.numyr - 1
-        prob += (bal_ira[final_year] * S.r_rate \
-                 - f_ira[final_year] * S.r_rate \
-                 ) >= float(args.ira) * (S.i_rate ** S.numyr), "Final_401k_Value" # Inflated target   
+    if args.min_taxes is not None:
+        prob += spending_floor == float(args.min_taxes), "Set_Spending_Floor"
+        objectives = [- 1 * pulp.lpSum(total_tax[y] * 1 / (S.i_rate ** y) for y in years_retire)]
+    elif args.max_assets is not None:
+        prob += spending_floor >= float(args.max_assets), "Set_Spending_Floor"
+        objectives = [+ 1.0 * (bal_roth[S.numyr-1] - f_roth[S.numyr-1]) \
+                      + 1.0 * (bal_ira[S.numyr-1] - f_ira[S.numyr-1]) \
+                      + 1.0 * (bal_save[S.numyr-1] - f_save[S.numyr-1]),
+                      - 1 * pulp.lpSum(total_tax[y] * 1 / (S.i_rate ** y) for y in years_retire) \
+                      - 0.1 * pulp.lpSum(smooth[y] for y in range(S.numyr-1))]
+    else:  # defaults to max-spend
+        objectives = [spending_floor,
+                      - 1 * pulp.lpSum(total_tax[y] * 1 / (S.i_rate ** y) for y in years_retire) \
+                      - 0.1 * pulp.lpSum(smooth[y] for y in range(S.numyr-1))]
 
     # --- Constraints ---
 
     # --- Retirement Year Constraints ---
     for y in years_retire:
         i_mul = S.i_rate ** y
-        tax_i_mul = (S.i_rate - 0.00) ** y
+        tax_i_mul = ((S.i_rate - 0.01) ** y) if (args.pessimistic_taxes) else i_mul
         age = y + S.retireage
 
         # Calculate basis_percent (as used in state tax, NII, CG calcs)
@@ -381,46 +355,47 @@ def solve_pulp(args, S):
             last_bal_ira = S.IRA['bal']
             last_bal_roth = S.roth['bal']
 
-            prob += bal_save[y] == last_bal_save, f"Retire_InitSaveBal_{y}"
-            prob += bal_ira[y] == last_bal_ira, f"Retire_InitIRABal_{y}"
-            prob += bal_roth[y] == last_bal_roth, f"Retire_InitRothBal_{y}"
+            prob += bal_save[y] == last_bal_save, f"InitSaveBal_{y}"
+            prob += bal_ira[y] == last_bal_ira, f"InitIRABal_{y}"
+            prob += bal_roth[y] == last_bal_roth, f"InitRothBal_{y}"
         else:
-            prob += bal_save[y] == (bal_save[y-1] - f_save[y-1]) * S.r_rate - cgd[y-1], f"Retire_SaveBal_{y}"
-            prob += bal_ira[y] == (bal_ira[y-1] - f_ira[y-1] - ira_to_roth[y-1]) * S.r_rate, f"Retire_IRABal_{y}"
-            prob += bal_roth[y] == (bal_roth[y-1] - f_roth[y-1] + ira_to_roth[y-1]) * S.r_rate, f"Retire_RothBal_{y}"
+            prob += bal_save[y] == (bal_save[y-1] - f_save[y-1]) * S.r_rate - cgd[y-1], f"SaveBal_{y}"
+            prob += bal_ira[y] == (bal_ira[y-1] - f_ira[y-1] - ira_to_roth[y-1]) * S.r_rate, f"IRABal_{y}"
+            prob += bal_roth[y] == (bal_roth[y-1] - f_roth[y-1] + ira_to_roth[y-1]) * S.r_rate, f"RothBal_{y}"
 
-        # prob += ira_to_roth[y] == 0
 
         # Capital Gains Distribution Balance Calculation
         prob += cgd[y] == (bal_save[y] - f_save[y]) * S.r_rate * S.aftertax['distributions'], f"CGD_Calc_{y}"
-        total_cap_gains = cgd[y] + f_save[y] * taxable_part_of_f_save
+        prob += brokerage_cg[y] == f_save[y] * taxable_part_of_f_save, f"BrokerageCG_{y}"
+        prob += total_cap_gains[y] == cgd[y] + brokerage_cg[y] # Total Capital Gains = Cap Gains Distribution + Brokerage CG
 
 
         # --- Federal Tax Calculation ---
 
         # Total Non-investment Income Calculation (Federal) = IRA Withdrawals + Conversions + Taxable External Income
-        prob += non_investment_income[y] == f_ira[y] + ira_to_roth[y] + S.taxed_income[y], f"NonInvestmentIncome_{y}"
+        prob += ordinary_income[y] == f_ira[y] + ira_to_roth[y] + S.taxed_income[y], f"Ordinary_Income_{y}"
 
         # --- Non-investment Income Tax Calculations ---
         # Limit amounts in std deduction and brackets
         prob += std_deduction_amount[y] <= S.stded * tax_i_mul, f"MaxStdDed_{y}"
 
         # How much of the standard deduction is taken up by the non_investment_income?
-        add_min_constraints(prob, standard_deduction_vars[y, 'income_portion'], std_deduction_amount[y], non_investment_income[y], M, f"StdDedIncomePortion_{y}")
+        add_min_constraints(prob, standard_deduction_vars[y, 'income_portion'], std_deduction_amount[y], ordinary_income[y], M, f"StdDedIncomePortion_{y}")
         # Whatever is left can be used by the capital gains
         prob += standard_deduction_vars[y, 'cg_portion'] <= std_deduction_amount[y] - standard_deduction_vars[y, 'income_portion'], f"StdDedCGPortionLimit_{y}"
+
 
         for j, (rate, low, high) in enumerate(S.taxtable):
              bracket_size = (high - low) * tax_i_mul if high != float('inf') else M # Use Big M for unbounded top bracket
              prob += tax_bracket_amount[y, j] <= bracket_size, f"MaxTaxBracket_{y}_{j}"
 
         # Sum of std_deduction plus the amounts in brackets must equal total non_investment taxable income
-        prob += standard_deduction_vars[y, 'income_portion'] + pulp.lpSum(tax_bracket_amount[y, j] for j in range(len(S.taxtable))) == non_investment_income[y], f"SumTaxBrackets_{y}"
+        prob += standard_deduction_vars[y, 'income_portion'] + pulp.lpSum(tax_bracket_amount[y, j] for j in range(len(S.taxtable))) == ordinary_income[y], f"SumTaxBrackets_{y}"
 
         # --- CG Tax Calculations ---
 
         # --- CG Tax Bracket Calculations ---
-        taxable_income_eff = non_investment_income[y] - standard_deduction_vars[y, 'income_portion'] # Non-investment Income above std deduction
+        taxable_income_eff = ordinary_income[y] - standard_deduction_vars[y, 'income_portion'] # Ordinary (Non-investment) Income above std deduction
         for j, (rate, low, high) in enumerate(S.cg_taxtable):
              low_adj = low * tax_i_mul
              high_adj = high * tax_i_mul if high != float('inf') else M
@@ -432,7 +407,9 @@ def solve_pulp(args, S):
 
              # if it is 0 or negative, then set it to 0
              # cg_over = max(0, cg_raw_over)
-             add_max_zero_constraints(prob, cg_vars[y, j, 'over'], cg_vars[y, j, 'raw_over'], M, f"CG_{y}_{j}")
+             # add_max_zero_constraints(prob, cg_vars[y, j, 'over'], cg_vars[y, j, 'raw_over'], M, f"CG_{y}_{j}")
+             prob += cg_vars[y, j, 'over'] >= cg_vars[y, j, 'raw_over']
+             prob += cg_vars[y, j, 'over'] >= 0
 
              # cg_size = bracket_size
              prob += cg_vars[y, j, 'size'] == bracket_size, f"CG_Size_{y}_{j}"
@@ -447,7 +424,7 @@ def solve_pulp(args, S):
              prob += cg_vars[y, j, 'cg_portion'] <= cg_vars[y, j, 'size'] - cg_vars[y, j, 'income_portion'], f"CG_CGPortionLimit_{y}_{j}"
              
         # Sum of CG portions across all brackets must equal total capital gains
-        prob += standard_deduction_vars[y, 'cg_portion'] + pulp.lpSum(cg_vars[y, j, 'cg_portion'] for j in range(len(S.cg_taxtable))) == total_cap_gains, f"Sum_CG_Portions_{y}"
+        prob += standard_deduction_vars[y, 'cg_portion'] + pulp.lpSum(cg_vars[y, j, 'cg_portion'] for j in range(len(S.cg_taxtable))) == total_cap_gains[y], f"Sum_CG_Portions_{y}"
 
 
         # --- NII Calculation ---
@@ -455,51 +432,59 @@ def solve_pulp(args, S):
         nii_threshold_adj = S.nii # NII threshold typically not inflation adjusted
 
         # Simplified MAGI for this calculation
-        magi_approx = f_ira[y] + ira_to_roth[y] + S.taxed_income[y] + total_cap_gains
+        magi_approx = f_ira[y] + ira_to_roth[y] + S.taxed_income[y] + total_cap_gains[y]
+        prob += fed_agi[y] == magi_approx, f"FedAGI_{y}"
 
         # NII Raw Over = MAGI - Threshold
         prob += nii_vars[y, 'raw_over'] == magi_approx - nii_threshold_adj, f"NII_RawOver_{y}"
 
         # NII Over = max(0, raw_over)
-        add_max_zero_constraints(prob, nii_vars[y, 'over'], nii_vars[y, 'raw_over'], M, f"NII_{y}")
+        # add_max_zero_constraints(prob, nii_vars[y, 'over'], nii_vars[y, 'raw_over'], M, f"NII_{y}")
+        prob += nii_vars[y, 'over'] >= 0
+        prob += nii_vars[y, 'over'] >= nii_vars[y, 'raw_over']
 
         # NII CG Portion = min(Total Cap Gains, NII Over)
-        add_min_constraints(prob, nii_vars[y, 'cg_portion'], nii_vars[y, 'over'], total_cap_gains, M, f"NII_{y}_CGPort")
+        add_min_constraints(prob, nii_vars[y, 'cg_portion'], nii_vars[y, 'over'], total_cap_gains[y], M, f"NII_{y}_CGPort")
 
 
         # Calculate Federal Tax (sum across brackets + penalty + CG tax + NII tax)
+        # First, the brackets
         fed_tax_calc = pulp.lpSum(tax_bracket_amount[y, j] * S.taxtable[j][0] for j in range(len(S.taxtable)))
+        prob += fed_tax_ordinary_income[y] == fed_tax_calc, f"FedTaxOrdIncome_{y}"
 
-        # Add Capital Gains Tax (calculated below)
-        fed_tax_calc += pulp.lpSum(cg_vars[y, j, 'cg_portion'] * S.cg_taxtable[j][0] for j in range(len(S.cg_taxtable)))
+        # Add Capital Gains Tax
+        prob += fed_tax_cg[y] == pulp.lpSum(cg_vars[y, j, 'cg_portion'] * S.cg_taxtable[j][0] for j in range(len(S.cg_taxtable))), f"FedTaxCG_{y}"
+        fed_tax_calc += fed_tax_cg[y]
+
         # Add NII Tax (calculated below) - NII applies to the net investment income over threshold
-        fed_tax_calc += nii_vars[y, 'cg_portion'] * 0.038 # Add NII tax based on the allocated portion
-
-        # Tax Bump if applicable
-        if args.bumptax and args.bumpstart and y >= float(args.bumpstart):
-             fed_tax_calc += pulp.lpSum(tax_bracket_amount[y, j] * (float(args.bumptax) / 100.0) for j in range(len(S.taxtable)))
+        prob += fed_tax_nii[y] == nii_vars[y, 'cg_portion'] * 0.038 # NII tax rate
+        fed_tax_calc += fed_tax_nii[y] # Add NII tax based on the allocated portion
 
         if age < 59:
-            prob += fed_tax[y] == fed_tax_calc + f_ira[y] * 0.1, f"FedTaxCalc_{y}"
+            prob += fed_tax_early_withdrawal[y] == f_ira[y] * 0.1, f"FedTaxEarlyWithdraw_{y}"
+            prob += fed_tax[y] == fed_tax_calc + fed_tax_early_withdrawal[y], f"FedTaxCalc_{y}"
         else:
             prob += fed_tax[y] == fed_tax_calc, f"FedTaxCalc_{y}"
 
 
         # State Taxable Income Calculation = Fed Taxable Income + Taxable Cap Gains - State Deduction
         # Original: state_taxable = fira + ira2roth + basis*fsave + cgd + state_taxed_extra
-        prob += state_taxable_income[y] == f_ira[y] + ira_to_roth[y] + f_save[y] * taxable_part_of_f_save + cgd[y] + S.state_taxed_income[y], f"StateTaxableIncome_{y}"
+        prob += state_ordinary_income[y] == f_ira[y] + ira_to_roth[y] + f_save[y] * taxable_part_of_f_save + cgd[y] + S.state_taxed_income[y], f"StateTaxableIncome_{y}"
+        prob += state_agi[y] == state_ordinary_income[y], f"StateAGI_{y}"
 
         # State Tax Calculation
-        add_min_constraints(prob, state_std_deduction_used[y], state_std_deduction_amount[y], state_taxable_income[y], M, f"StateStdDedUsed_{y}")
+#        add_min_constraints(prob, state_std_deduction_used[y], state_std_deduction_amount[y], state_ordinary_income[y], M, f"StateStdDedUsed_{y}")
+        prob += state_std_deduction_used[y] <= state_std_deduction_amount[y]
+        prob += state_std_deduction_used[y] <= state_ordinary_income[y]
         prob += state_std_deduction_amount[y] <= S.state_stded * tax_i_mul, f"MaxStateStdDed_{y}"
         for j, (rate, low, high) in enumerate(S.state_taxtable):
              bracket_size = (high - low) * tax_i_mul if high != float('inf') else M
              prob += state_tax_bracket_amount[y, j] <= bracket_size, f"MaxStateTaxBracket_{y}_{j}"
 
-        prob += state_std_deduction_used[y] + pulp.lpSum(state_tax_bracket_amount[y, j] for j in range(len(S.state_taxtable))) == state_taxable_income[y], f"SumStateTaxBrackets_{y}"
+        prob += state_std_deduction_used[y] + pulp.lpSum(state_tax_bracket_amount[y, j] for j in range(len(S.state_taxtable))) == state_ordinary_income[y], f"SumStateTaxBrackets_{y}"
 
         prob += state_tax[y] == pulp.lpSum(state_tax_bracket_amount[y, j] * S.state_taxtable[j][0] for j in range(len(S.state_taxtable))), f"StateTaxCalc_{y}"
-
+        prob += state_tax_ordinary_income[y] == state_tax[y], f"StateTaxOrdIncome_{y}"
 
         # Total Tax Calculation
         prob += total_tax[y] == fed_tax[y] + state_tax[y], f"TotalTaxCalc_{y}"
@@ -507,7 +492,7 @@ def solve_pulp(args, S):
         # Income Ceiling Constraint (Original A+b constraint)
         # fira + ira2roth + taxed_extra + basis*fsave + cgd <= ceiling
         if (S.income_ceiling[y] < 5000000):
-            prob += f_ira[y] + ira_to_roth[y] + S.taxed_income[y] + f_save[y] * taxable_part_of_f_save + cgd[y] <= S.income_ceiling[y], f"IncomeCeiling_{y}"
+            prob += fed_agi[y] <= S.income_ceiling[y], f"IncomeCeiling_{y}"
 
         # RMD Constraint (age >= 73)
         if age >= 73:
@@ -525,6 +510,7 @@ def solve_pulp(args, S):
             rmd_required = prev_year_end_ira / rmd_factor
             # Withdrawal must meet RMD: f_ira[y] >= rmd_required
             prob += f_ira[y] >= rmd_required, f"RMD_{y}"
+            prob += required_RMD[y] == rmd_required, f"RMD_Amount_{y}"
             # prob += ira_to_roth[y] == 0, f"RMD_Convert_{y}" # No conversions if RMD is required
 
 
@@ -555,7 +541,10 @@ def solve_pulp(args, S):
         prob += (bal_roth[final_year] - f_roth[final_year] + ira_to_roth[final_year]) * S.r_rate >= 0, "FinalRothNonNeg"
 
 
-    prob.writeLP("debug.lp")
+#    prob.writeLP("debug.lp")
+#    prob.setObjective(objectives[0])
+#    prob += objectives[0]
+
     # --- Solve ---
     solver_options = {}
     if args.timelimit:
@@ -568,77 +557,34 @@ def solve_pulp(args, S):
     # Choose a solver (CBC is default, bundled with PuLP)
     solver = pulp.PULP_CBC_CMD(threads=4,timeLimit=float(args.timelimit) if args.timelimit else 180, msg=args.verbose)
 
+    return prob, solver, objectives
 
-    print("Starting PuLP solver...")
-    prob.solve(solver)
-
-    # --- Process Results ---
+def retrieve_results(args, S, prob):
     status = pulp.LpStatus[prob.status]
-    print(f"Solver Status: {status}")
-
-    if prob.status not in [pulp.LpStatusOptimal, pulp.LpStatusNotSolved]: # Not Solved can occur with time limit but might have a feasible solution
-         print("Solver did not find an optimal solution.")
-         if prob.status == pulp.LpStatusInfeasible:
-              print("Problem is infeasible.")
-         elif prob.status == pulp.LpStatusUnbounded:
-               print("Problem is unbounded.")
-         # Consider returning None or raising an error if no solution found
-         # For now, return None, handle this in main
-         return None, None, None # Indicate failure
-
-
-    # Extract results into a dictionary or similar structure for printing
+    all_values = { v.name: v.varValue for v in prob.variables() }
+    all_names = ['Balance_Save', 'Withdraw_Save', 'Balance_IRA', 'Withdraw_IRA', 'Balance_Roth', 'Withdraw_Roth', 'IRA_to_Roth',
+                  'Ordinary_Income', 'State_Ordinary_Income', 'Fed_Tax', 'State_Tax', 'Total_Tax', 'Capital_Gains_Distribution',
+                  'Std_Deduction_Amount', 'State_Std_Deduction_Amount']
+#    # Extract results into a dictionary or similar structure for printing
     results = {
-        'spending_floor': spending_floor.varValue,
+        'spending_floor': all_values['SpendingFloor'],
         'retire': {},
         'status': status
     }
+    years_retire = range(S.numyr)
 
     for y in years_retire:
-        adjust = min(ira_to_roth[y].varValue, f_roth[y].varValue) if y+S.startage > 59 else 0
+        adjust = min(all_values[f'IRA_to_Roth_{y}'], all_values[f'Withdraw_Roth_{y}']) if y+S.startage > 59 else 0
         results['retire'][y] = {
-            'f_save': f_save[y].varValue,           
-            'f_ira': f_ira[y].varValue + adjust,
-            'f_roth': f_roth[y].varValue - adjust,
-            'ira_to_roth': ira_to_roth[y].varValue - adjust,
-            'bal_save': bal_save[y].varValue,
-            'bal_ira': bal_ira[y].varValue,
-            'bal_roth': bal_roth[y].varValue,
-            'taxable_income': non_investment_income[y].varValue,
-            'state_taxable_income': state_taxable_income[y].varValue,
-            'fed_tax': fed_tax[y].varValue,
-            'state_tax': state_tax[y].varValue,
-            'total_tax': total_tax[y].varValue,
-            'cgd': cgd[y].varValue,
-            # Include tax bracket details if needed for output
-            'std_ded_amount': std_deduction_amount[y].varValue,
-            'state_std_ded_amount': state_std_deduction_amount[y].varValue,
+            a: all_values[f'{a}_{y}'] for a in all_names
         }
-        # Add bracket amounts
-        results['retire'][y]['tax_brackets'] = [tax_bracket_amount[y, j].varValue for j in range(len(S.taxtable))]
-        results['retire'][y]['state_tax_brackets'] = [state_tax_bracket_amount[y, j].varValue for j in range(len(S.state_taxtable))]
+        results['retire'][y]['IRA_to_Roth'] = results['retire'][y]['IRA_to_Roth'] - adjust
+        results['retire'][y]['Withdraw_Roth'] = results['retire'][y]['Withdraw_Roth'] - adjust
+        results['retire'][y]['Withdraw_IRA'] = results['retire'][y]['Withdraw_IRA'] + adjust
+        results['retire'][y]['CGD_Spendable'] = results['retire'][y-1]['Capital_Gains_Distribution'] if y > 0 else 0
+        results['retire'][y]['tax_brackets'] = [all_values[f'Tax_Bracket_Amount_({y},_{j})'] for j in range(len(S.taxtable))]
+        results['retire'][y]['state_tax_brackets'] = [all_values[f'State_Tax_Bracket_Amount_({y},_{j})'] for j in range(len(S.state_taxtable))]
 
-
-    if args.roth is not None:
-        final_year = S.numyr - 1
-        if final_year >= 0:
-             roth_value = (results['retire'][final_year]['bal_roth'] \
-                            - results['retire'][final_year]['f_roth'] \
-                            + results['retire'][final_year]['ira_to_roth']) * S.r_rate
-             i_mul_final = S.i_rate ** S.numyr
-             print(f"\nThe ending value, including final year investment returns, of your Roth account will be {roth_value:.0f}")
-             print(f"That is equivalent to {roth_value / i_mul_final:.0f} in today's dollars")
-
-    if args.ira is not None:
-        final_year = S.numyr - 1
-        if final_year >= 0:
-             ira_value = (results['retire'][final_year]['bal_ira'] \
-                            - results['retire'][final_year]['f_ira']) * S.r_rate
-             i_mul_final = S.i_rate ** S.numyr
-             print(f"\nThe ending value, including final year investment returns, of your IRA account will be {ira_value:.0f}")
-             print(f"That is equivalent to {ira_value / i_mul_final:.0f} in today's dollars")
-
-    # Return the results structure instead of the raw array
     return results, S, prob # Pass S and prob back for potential inspection
 
 
@@ -664,19 +610,20 @@ def print_ascii(results, S):
         i_mul = S.i_rate ** year
 
         # Extract values, handling None if solver failed partially
-        bal_save = r_res.get('bal_save', 0)
-        f_save = r_res.get('f_save', 0)
-        bal_ira = r_res.get('bal_ira', 0)
-        f_ira = r_res.get('f_ira', 0)
-        bal_roth = r_res.get('bal_roth', 0)
-        f_roth = r_res.get('f_roth', 0)
-        ira2roth = r_res.get('ira_to_roth', 0)
-        cgd = r_res.get('cgd', 0)
-        tax = r_res.get('total_tax', 0)
-        taxable_inc = r_res.get('taxable_income',0)
-        std_ded_amount = r_res.get('std_ded_amount',0)
-        state_taxable_inc = r_res.get('state_taxable_income', 0)
-        state_std_ded_amount = r_res.get('state_std_ded_amount',0)
+        bal_save = r_res.get('Balance_Save', 0)
+        f_save = r_res.get('Withdraw_Save', 0)
+        bal_ira = r_res.get('Balance_IRA', 0)
+        f_ira = r_res.get('Withdraw_IRA', 0)
+        bal_roth = r_res.get('Balance_Roth', 0)
+        f_roth = r_res.get('Withdraw_Roth', 0)
+        ira2roth = r_res.get('IRA_to_Roth', 0)
+        cgd = r_res.get('Capital_Gains_Distribution', 0)
+        cgd_spendable = r_res.get('CGD_Spendable', 0)
+        tax = r_res.get('Total_Tax', 0)
+        taxable_inc = r_res.get('Ordinary_Income',0)
+        std_ded_amount = r_res.get('Std_Deduction_Amount',0)
+        state_taxable_inc = r_res.get('State_Ordinary_Income', 0)
+        state_std_ded_amount = r_res.get('State_Std_Deduction_Amount',0)
 
 
         # Calculate effective tax rate (simplified)
@@ -699,8 +646,7 @@ def print_ascii(results, S):
         rate = fed_rate + state_rate
 
         # Calculate yearly spending = Withdrawals + Income - Expenses - Taxes
-        spend_cgd = results['retire'][year-1]['cgd'] if year > 0 and 'cgd' in results['retire'][year-1] else 0 # From last year
-        spending = f_save + spend_cgd + f_ira + f_roth + S.income[year] - S.expenses[year] - tax
+        spending = f_save + cgd_spendable + f_ira + f_roth + S.income[year] - S.expenses[year] - tax
 
         ttax += tax / i_mul                     # totals in today's dollars
         tspend += spending / i_mul              # totals in today's dollars
@@ -736,19 +682,20 @@ def print_csv(results, S):
         age = year + S.retireage
         i_mul = S.i_rate ** year
 
-        bal_save = r_res.get('bal_save', 0)
-        f_save = r_res.get('f_save', 0)
-        bal_ira = r_res.get('bal_ira', 0)
-        f_ira = r_res.get('f_ira', 0)
-        bal_roth = r_res.get('bal_roth', 0)
-        f_roth = r_res.get('f_roth', 0)
-        ira2roth = r_res.get('ira_to_roth', 0)
-        cgd = r_res.get('cgd', 0)
-        fed_tax = r_res.get('fed_tax', 0)
-        state_tax = r_res.get('state_tax', 0)
-        total_tax = r_res.get('total_tax', 0)
+        bal_save = r_res.get('Balance_Save', 0)
+        f_save = r_res.get('Withdraw_Save', 0)
+        bal_ira = r_res.get('Balance_IRA', 0)
+        f_ira = r_res.get('Withdraw_IRA', 0)
+        bal_roth = r_res.get('Balance_Roth', 0)
+        f_roth = r_res.get('Withdraw_Roth', 0)
+        ira2roth = r_res.get('IRA_to_Roth', 0)
+        cgd = r_res.get('Capital_Gains_Distribution', 0)
+        fed_tax = r_res.get('Fed_Tax', 0)
+        state_tax = r_res.get('State_Tax', 0)
+        total_tax = r_res.get('Total_Tax', 0)
 
-        spend_cgd = results['retire'][year-1]['cgd'] if year > 0 and 'cgd' in results['retire'][year-1] else 0
+#        spend_cgd = results['retire'][year-1]['cgd'] if year > 0 else 0
+        spend_cgd = r_res.get('CGD_Spendable', 0)
         spending_inf = f_save + spend_cgd + f_ira + f_roth + S.income[year] - S.expenses[year] - total_tax
         spend_goal_inf = spending_floor_val * i_mul
 
@@ -764,30 +711,53 @@ def main():
     parser.add_argument('--csv', action='store_true', help="Generate CSV outputs")
     parser.add_argument('--timelimit',
                         help="After given seconds return the best answer found (solver dependent)")
-    parser.add_argument('--bumpstart', type=int, # Changed type to int
-                        help="Start tax bump after given retirement years (e.g., 10)")
-    parser.add_argument('--bumptax', type=float, # Changed type to float
-                        help="Increase taxes charged in all federal income tax brackets (as percentage points, e.g., 5 for 5%%)")
-#    group = parser.add_mutually_exclusive_group()
-    parser.add_argument('--spend', type=float, # Changed type to float
-                        help="Set fixed yearly spending (today's dollars); minimizes taxes.")
-    parser.add_argument('--roth', type=float, # Changed type to float
-                       help="Specify the target final Roth balance (today's dollars)")
-    parser.add_argument('--ira', type=float, # Changed type to float
-                       help="Specify the target final IRA balance (today's dollars)")
+    parser.add_argument('--pessimistic-taxes', action='store_true',
+                        help="Simulate higher future taxes by increasing the tax bracket caps slower than inflation")
+    parser.add_argument('--pessimistic-healthcare', action='store_true',
+                        help="Simulate higher future healthcare costs by increasing the costs more than inflation")
+    group = parser.add_mutually_exclusive_group()
+    group.add_argument('--max-spend', action='store_true',
+                       help="Maximize inflation-adjusted spending")
+    group.add_argument('--max-assets', type=float, # Changed type to float
+                       help="Set fixed yearly spending; maximize end-of-plan assets.")
+    group.add_argument('--min-taxes', type=float,
+                       help="Set fixed yearly spending; minimize the total taxes paid over the plan")
     parser.add_argument('conffile', help="Configuration file in TOML format")
     args = parser.parse_args()
-
-    if bool(args.bumptax) != bool(args.bumpstart): # Use != for XOR check
-        parser.error('--bumptax and --bumpstart must be given together')
-
 
     S = Data()
     S.load_file(args.conffile)
 
     # Solve using PuLP
-    results, S_out, prob = solve_pulp(args, S) # Get S back in case it was modified (it shouldn't be here)
+    print("Starting PuLP solver...")
+    for relTol in [0.9999, 0.999, 0.99]:
+        prob, solver, objectives = prepare_pulp(args, S) # Prepare the problem for solving
+        print(f"Searching solution with relTol={relTol}")
+        prob.sequentialSolve(objectives, relativeTols=[relTol]*len(objectives), solver=solver)
+        status = pulp.LpStatus[prob.status]
+        if status == "Optimal":
+            print(f"Found solution with relTol={relTol}")
+            break
+        else:
+            print(f"Solver status: {status} with relTol={relTol}")
+            print("Trying with a less strict tolerance...")
 
+    # --- Process Results ---
+    print(f"Solver Status: {status}")
+#    for v in prob.variables():  
+#        print(v.name, "=", v.varValue)
+
+    if prob.status not in [pulp.LpStatusOptimal, pulp.LpStatusNotSolved]: # Not Solved can occur with time limit but might have a feasible solution
+         print("Solver did not find an optimal solution.")
+         if prob.status == pulp.LpStatusInfeasible:
+              print("Problem is infeasible.")
+         elif prob.status == pulp.LpStatusUnbounded:
+               print("Problem is unbounded.")
+         # Consider returning None or raising an error if no solution found
+         # For now, return None, handle this in main
+         return None, None, None # Indicate failure
+
+    results, S_out, prob = retrieve_results(args, S, prob)
     if results is None:
         print("Failed to solve the problem.")
         # Optionally print problem formulation if verbose/debugging
