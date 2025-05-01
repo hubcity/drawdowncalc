@@ -574,16 +574,18 @@ def retrieve_results(args, S, prob):
     years_retire = range(S.numyr)
 
     for y in years_retire:
+        i_mul = S.i_rate ** y
         adjust = min(all_values[f'IRA_to_Roth_{y}'], all_values[f'Withdraw_Roth_{y}']) if y+S.startage > 59 else 0
+        adjust = adjust / i_mul
         results['retire'][y] = {
-            a: all_values[f'{a}_{y}'] for a in all_names
+            a: all_values[f'{a}_{y}'] / i_mul for a in all_names
         }
         results['retire'][y]['IRA_to_Roth'] = results['retire'][y]['IRA_to_Roth'] - adjust
         results['retire'][y]['Withdraw_Roth'] = results['retire'][y]['Withdraw_Roth'] - adjust
         results['retire'][y]['Withdraw_IRA'] = results['retire'][y]['Withdraw_IRA'] + adjust
-        results['retire'][y]['CGD_Spendable'] = results['retire'][y-1]['Capital_Gains_Distribution'] if y > 0 else 0
-        results['retire'][y]['tax_brackets'] = [all_values[f'Tax_Bracket_Amount_({y},_{j})'] for j in range(len(S.taxtable))]
-        results['retire'][y]['state_tax_brackets'] = [all_values[f'State_Tax_Bracket_Amount_({y},_{j})'] for j in range(len(S.state_taxtable))]
+        results['retire'][y]['CGD_Spendable'] = (results['retire'][y-1]['Capital_Gains_Distribution'] / S.i_rate) if y > 0 else 0
+        results['retire'][y]['tax_brackets'] = [all_values[f'Tax_Bracket_Amount_({y},_{j})'] / i_mul for j in range(len(S.taxtable))]
+        results['retire'][y]['state_tax_brackets'] = [all_values[f'State_Tax_Bracket_Amount_({y},_{j})'] / i_mul for j in range(len(S.state_taxtable))]
 
     return results, S, prob # Pass S and prob back for potential inspection
 
@@ -646,10 +648,10 @@ def print_ascii(results, S):
         rate = fed_rate + state_rate
 
         # Calculate yearly spending = Withdrawals + Income - Expenses - Taxes
-        spending = f_save + cgd_spendable + f_ira + f_roth + S.income[year] - S.expenses[year] - tax
+        spending = f_save + cgd_spendable + f_ira + f_roth + S.income[year] / i_mul - S.expenses[year] / i_mul - tax
 
-        ttax += tax / i_mul                     # totals in today's dollars
-        tspend += spending / i_mul              # totals in today's dollars
+        ttax += tax 
+        tspend += spending
         div_by = 1000
         print((" %3d:" + " %6.0f" * 11) %
               (age,
@@ -696,11 +698,11 @@ def print_csv(results, S):
 
 #        spend_cgd = results['retire'][year-1]['cgd'] if year > 0 else 0
         spend_cgd = r_res.get('CGD_Spendable', 0)
-        spending_inf = f_save + spend_cgd + f_ira + f_roth + S.income[year] - S.expenses[year] - total_tax
-        spend_goal_inf = spending_floor_val * i_mul
+        spending_inf = f_save + spend_cgd + f_ira + f_roth + S.income[year] / i_mul - S.expenses[year] / i_mul - total_tax
+        spend_goal_inf = spending_floor_val
 
 
-        print(f"{age},{bal_save:.0f},{f_save:.0f},{bal_ira:.0f},{f_ira:.0f},{bal_roth:.0f},{f_roth:.0f},{ira2roth:.0f},{S.income[year]:.0f},{S.expenses[year]:.0f},{cgd:.0f},{fed_tax:.0f},{state_tax:.0f},{total_tax:.0f},{spend_goal_inf:.0f},{spending_inf:.0f}")
+        print(f"{age},{bal_save:.0f},{f_save:.0f},{bal_ira:.0f},{f_ira:.0f},{bal_roth:.0f},{f_roth:.0f},{ira2roth:.0f},{S.income[year] / i_mul:.0f},{S.expenses[year] / i_mul:.0f},{cgd:.0f},{fed_tax:.0f},{state_tax:.0f},{total_tax:.0f},{spend_goal_inf:.0f},{spending_inf:.0f}")
 
 
 def main():
