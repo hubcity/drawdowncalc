@@ -165,16 +165,6 @@ def add_min_constraints(prob, result_var, a_var, b_var, M, base_name):
     prob += a_var <= result_var + M * y, f"{base_name}_min_ge_a"
     prob += b_var <= result_var + M * (1 - y), f"{base_name}_min_ge_b"
 
-# Helper function to implement max(0, x) using Big M
-# result = max(0, x) -> result >= 0, result >= x
-# x <= result + M*y, 0 <= result + M*(1-y) -> result >= x - M*y, result >= -M(1-y)
-# result <= x + M*(1-y), result <= 0 + M*y -> result <= x + M(1-y), result <= M*y
-def add_max_zero_constraints(prob, result_var, x_var, M, base_name):
-    y = pulp.LpVariable(f"{base_name}_max0_ind", cat=pulp.LpBinary)
-    prob += result_var >= 0, f"{base_name}_max0_ge_0"
-    prob += result_var >= x_var, f"{base_name}_max0_ge_x"
-    prob += result_var <= x_var + M * (1 - y), f"{base_name}_max0_le_x"
-    prob += result_var <= M * y, f"{base_name}_max0_le_M"
 
 def add_if_then_constraint(prob, condition_expr, consequence_expr, M, base_name):
     """
@@ -308,7 +298,7 @@ def prepare_pulp(args, S):
                    - S.expenses[y] - total_tax[y]) == spending_floor * i_mul, f"Min_Spend_{y}"
 
     if args.min_taxes is not None:
-        prob += spending_floor >= float(args.min_taxes), "Set_Spending_Floor"
+        prob += spending_floor == float(args.min_taxes), "Set_Spending_Floor"
         objectives = [- 1 * pulp.lpSum(total_tax[y] * 1 / (S.i_rate ** y) for y in years_retire)]
     elif args.max_assets is not None:
         prob += spending_floor >= float(args.max_assets), "Set_Spending_Floor"
@@ -402,7 +392,9 @@ def prepare_pulp(args, S):
 
              # if it is 0 or negative, then set it to 0
              # cg_over = max(0, cg_raw_over)
-             add_max_zero_constraints(prob, cg_vars[y, j, 'over'], cg_vars[y, j, 'raw_over'], M, f"CG_{y}_{j}")
+             # add_max_zero_constraints(prob, cg_vars[y, j, 'over'], cg_vars[y, j, 'raw_over'], M, f"CG_{y}_{j}")
+             prob += cg_vars[y, j, 'over'] >= cg_vars[y, j, 'raw_over']
+             prob += cg_vars[y, j, 'over'] >= 0
 
              # cg_size = bracket_size
              prob += cg_vars[y, j, 'size'] == bracket_size, f"CG_Size_{y}_{j}"
@@ -431,7 +423,9 @@ def prepare_pulp(args, S):
         prob += nii_vars[y, 'raw_over'] == magi_approx - nii_threshold_adj, f"NII_RawOver_{y}"
 
         # NII Over = max(0, raw_over)
-        add_max_zero_constraints(prob, nii_vars[y, 'over'], nii_vars[y, 'raw_over'], M, f"NII_{y}")
+        # add_max_zero_constraints(prob, nii_vars[y, 'over'], nii_vars[y, 'raw_over'], M, f"NII_{y}")
+        prob += nii_vars[y, 'over'] >= 0
+        prob += nii_vars[y, 'over'] >= nii_vars[y, 'raw_over']
 
         # NII CG Portion = min(Total Cap Gains, NII Over)
         add_min_constraints(prob, nii_vars[y, 'cg_portion'], nii_vars[y, 'over'], total_cap_gains, M, f"NII_{y}_CGPort")
@@ -457,7 +451,9 @@ def prepare_pulp(args, S):
         prob += state_taxable_income[y] == f_ira[y] + ira_to_roth[y] + f_save[y] * taxable_part_of_f_save + cgd[y] + S.state_taxed_income[y], f"StateTaxableIncome_{y}"
 
         # State Tax Calculation
-        add_min_constraints(prob, state_std_deduction_used[y], state_std_deduction_amount[y], state_taxable_income[y], M, f"StateStdDedUsed_{y}")
+#        add_min_constraints(prob, state_std_deduction_used[y], state_std_deduction_amount[y], state_taxable_income[y], M, f"StateStdDedUsed_{y}")
+        prob += state_std_deduction_used[y] <= state_std_deduction_amount[y]
+        prob += state_std_deduction_used[y] <= state_taxable_income[y]
         prob += state_std_deduction_amount[y] <= S.state_stded * tax_i_mul, f"MaxStateStdDed_{y}"
         for j, (rate, low, high) in enumerate(S.state_taxtable):
              bracket_size = (high - low) * tax_i_mul if high != float('inf') else M
