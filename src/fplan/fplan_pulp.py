@@ -238,10 +238,10 @@ def solve_pulp(args, S):
 
     # --- Retirement Year Variables ---
     # Withdrawals / Conversions
-    f_save = pulp.LpVariable.dicts("Retire_Withdraw_Save", years_retire, lowBound=0)
-    f_ira = pulp.LpVariable.dicts("Retire_Withdraw_IRA", years_retire, lowBound=0)
-    f_roth = pulp.LpVariable.dicts("Retire_Withdraw_Roth", years_retire, lowBound=0)
-    ira_to_roth = pulp.LpVariable.dicts("Retire_IRA_to_Roth", years_retire, lowBound=0)
+    f_save = pulp.LpVariable.dicts("Withdraw_Save", years_retire, lowBound=0)
+    f_ira = pulp.LpVariable.dicts("Withdraw_IRA", years_retire, lowBound=0)
+    f_roth = pulp.LpVariable.dicts("Withdraw_Roth", years_retire, lowBound=0)
+    ira_to_roth = pulp.LpVariable.dicts("IRA_to_Roth", years_retire, lowBound=0)
 
     # Balances (Beginning of Year)
     bal_save = pulp.LpVariable.dicts("Balance_Save", years_retire, lowBound=0)
@@ -350,13 +350,13 @@ def solve_pulp(args, S):
             last_bal_ira = S.IRA['bal']
             last_bal_roth = S.roth['bal']
 
-            prob += bal_save[y] == last_bal_save, f"Retire_InitSaveBal_{y}"
-            prob += bal_ira[y] == last_bal_ira, f"Retire_InitIRABal_{y}"
-            prob += bal_roth[y] == last_bal_roth, f"Retire_InitRothBal_{y}"
+            prob += bal_save[y] == last_bal_save, f"InitSaveBal_{y}"
+            prob += bal_ira[y] == last_bal_ira, f"InitIRABal_{y}"
+            prob += bal_roth[y] == last_bal_roth, f"InitRothBal_{y}"
         else:
-            prob += bal_save[y] == (bal_save[y-1] - f_save[y-1]) * S.r_rate - cgd[y-1], f"Retire_SaveBal_{y}"
-            prob += bal_ira[y] == (bal_ira[y-1] - f_ira[y-1] - ira_to_roth[y-1]) * S.r_rate, f"Retire_IRABal_{y}"
-            prob += bal_roth[y] == (bal_roth[y-1] - f_roth[y-1] + ira_to_roth[y-1]) * S.r_rate, f"Retire_RothBal_{y}"
+            prob += bal_save[y] == (bal_save[y-1] - f_save[y-1]) * S.r_rate - cgd[y-1], f"SaveBal_{y}"
+            prob += bal_ira[y] == (bal_ira[y-1] - f_ira[y-1] - ira_to_roth[y-1]) * S.r_rate, f"IRABal_{y}"
+            prob += bal_roth[y] == (bal_roth[y-1] - f_roth[y-1] + ira_to_roth[y-1]) * S.r_rate, f"RothBal_{y}"
 
         # prob += ira_to_roth[y] == 0
 
@@ -378,6 +378,7 @@ def solve_pulp(args, S):
         add_min_constraints(prob, standard_deduction_vars[y, 'income_portion'], std_deduction_amount[y], non_investment_income[y], M, f"StdDedIncomePortion_{y}")
         # Whatever is left can be used by the capital gains
         prob += standard_deduction_vars[y, 'cg_portion'] <= std_deduction_amount[y] - standard_deduction_vars[y, 'income_portion'], f"StdDedCGPortionLimit_{y}"
+
 
         for j, (rate, low, high) in enumerate(S.taxtable):
              bracket_size = (high - low) * tax_i_mul if high != float('inf') else M # Use Big M for unbounded top bracket
@@ -537,28 +538,12 @@ def solve_pulp(args, S):
     # Choose a solver (CBC is default, bundled with PuLP)
     solver = pulp.PULP_CBC_CMD(threads=4,timeLimit=float(args.timelimit) if args.timelimit else 180, msg=args.verbose)
 
-    def saveVarsAsDict(lpProblem):
-        varsNameValue = {}
-        for v in lpProblem._variables:
-            if v.varValue != 0:
-                varsNameValue[v.name] = v.varValue
-        return varsNameValue
-
-
-    def restoreVarsValues(lpProblem, varsNameValue):
-        for v in lpProblem._variables:
-            if v.name in varsNameValue:
-                v.varValue = varsNameValue[v.name]
-            else:
-                v.varValue = 0
-
-    original_prob_vars = saveVarsAsDict(prob)
+#    return prob, solver
 
     print("Starting PuLP solver...")
     for relTol in [1, 0.9999, 0.999, 0.99]:
         print(f"Searching solution with relTol={relTol}")
-        restoreVarsValues(prob, original_prob_vars)
-        prob.sequentialSolve(objectives, relativeTols=[relTol]*2, solver=solver)
+        prob.sequentialSolve(objectives, relativeTols=[relTol]*len(objectives), solver=solver)
         status = pulp.LpStatus[prob.status]
         if status == "Optimal":
             print(f"Found solution with relTol={relTol}")
@@ -566,10 +551,11 @@ def solve_pulp(args, S):
         else:
             print(f"Solver status: {status} with relTol={relTol}")
             print("Trying with a less strict tolerance...")
-    # prob.solve(solver)
 
     # --- Process Results ---
     print(f"Solver Status: {status}")
+#    for v in prob.variables():  
+#        print(v.name, "=", v.varValue)
 
     if prob.status not in [pulp.LpStatusOptimal, pulp.LpStatusNotSolved]: # Not Solved can occur with time limit but might have a feasible solution
          print("Solver did not find an optimal solution.")
@@ -582,7 +568,11 @@ def solve_pulp(args, S):
          return None, None, None # Indicate failure
 
 
-    # Extract results into a dictionary or similar structure for printing
+    all_values = { v.name: v.varValue for v in prob.variables() }
+    all_names = ['Balance_Save', 'Withdraw_Save', 'Balance_IRA', 'Withdraw_IRA', 'Balance_Roth', 'Withdraw_Roth', 'IRA_to_Roth',
+                  'Taxable_Income', 'State_Taxable_Income', 'Fed_Tax', 'State_Tax', 'Total_Tax', 'Capital_Gains_Distribution',
+                  'Std_Deduction_Amount', 'State_Std_Deduction_Amount']
+#    # Extract results into a dictionary or similar structure for printing
     results = {
         'spending_floor': spending_floor.varValue,
         'retire': {},
@@ -592,29 +582,37 @@ def solve_pulp(args, S):
     for y in years_retire:
         adjust = min(ira_to_roth[y].varValue, f_roth[y].varValue) if y+S.startage > 59 else 0
         results['retire'][y] = {
-            'f_save': f_save[y].varValue,           
-            'f_ira': f_ira[y].varValue + adjust,
-            'f_roth': f_roth[y].varValue - adjust,
-            'ira_to_roth': ira_to_roth[y].varValue - adjust,
-            'bal_save': bal_save[y].varValue,
-            'bal_ira': bal_ira[y].varValue,
-            'bal_roth': bal_roth[y].varValue,
-            'taxable_income': non_investment_income[y].varValue,
-            'state_taxable_income': state_taxable_income[y].varValue,
-            'fed_tax': fed_tax[y].varValue,
-            'state_tax': state_tax[y].varValue,
-            'total_tax': total_tax[y].varValue,
-            'cgd_taxed': cgd[y].varValue,
-            'cgd_spendable': cgd[y-1].varValue if y > 0 else 0,
-            # Include tax bracket details if needed for output
-            'std_ded_amount': std_deduction_amount[y].varValue,
-            'state_std_ded_amount': state_std_deduction_amount[y].varValue,
+            a: all_values[f'{a}_{y}'] for a in all_names
         }
+        results['retire'][y]['IRA_to_Roth'] = ira_to_roth[y].varValue - adjust
+        results['retire'][y]['Withdraw_Roth'] = f_roth[y].varValue - adjust
+        results['retire'][y]['Withdraw_IRA'] = f_ira[y].varValue + adjust
+        results['retire'][y]['CDG_Spendable'] = cgd[y-1].varValue if y > 0 else 0
+            # 'f_save': all_values[f'Withdraw_Save_{y}'],           
+            # 'f_ira': f_ira[y].varValue + adjust,
+            # 'f_roth': f_roth[y].varValue - adjust,
+            # 'ira_to_roth': ira_to_roth[y].varValue - adjust,
+            # 'bal_save': bal_save[y].varValue,
+            # 'bal_ira': bal_ira[y].varValue,
+            # 'bal_roth': bal_roth[y].varValue,
+            # 'taxable_income': non_investment_income[y].varValue,
+            # 'state_taxable_income': state_taxable_income[y].varValue,
+            # 'fed_tax': fed_tax[y].varValue,
+            # 'state_tax': state_tax[y].varValue,
+            # 'total_tax': total_tax[y].varValue,
+            # 'cgd_taxed': cgd[y].varValue,
+            # 'cgd_spendable': cgd[y-1].varValue if y > 0 else 0,
+            # # Include tax bracket details if needed for output
+            # 'std_ded_amount': std_deduction_amount[y].varValue,
+            # 'state_std_ded_amount': state_std_deduction_amount[y].varValue,
+        #}
         # Add bracket amounts
-        results['retire'][y]['tax_brackets'] = [tax_bracket_amount[y, j].varValue for j in range(len(S.taxtable))]
-        results['retire'][y]['state_tax_brackets'] = [state_tax_bracket_amount[y, j].varValue for j in range(len(S.state_taxtable))]
-    print(results['retire'][0])
-    print(results['retire'][1])
+        # State_Tax_Bracket_Amount_(10,_2)
+        results['retire'][y]['tax_brackets'] = [all_values[f'Tax_Bracket_Amount_({y},_{j})'] for j in range(len(S.taxtable))]
+        results['retire'][y]['state_tax_brackets'] = [all_values[f'State_Tax_Bracket_Amount_({y},_{j})'] for j in range(len(S.state_taxtable))]
+#    print(results['retire'][0])
+#    print(results['retire'][1])
+#    print(results['retire'][9])
 
 
     # if args.roth is not None:
@@ -662,19 +660,20 @@ def print_ascii(results, S):
         i_mul = S.i_rate ** year
 
         # Extract values, handling None if solver failed partially
-        bal_save = r_res.get('bal_save', 0)
-        f_save = r_res.get('f_save', 0)
-        bal_ira = r_res.get('bal_ira', 0)
-        f_ira = r_res.get('f_ira', 0)
-        bal_roth = r_res.get('bal_roth', 0)
-        f_roth = r_res.get('f_roth', 0)
-        ira2roth = r_res.get('ira_to_roth', 0)
-        cgd = r_res.get('cgd_spendable', 0)
-        tax = r_res.get('total_tax', 0)
-        taxable_inc = r_res.get('taxable_income',0)
-        std_ded_amount = r_res.get('std_ded_amount',0)
-        state_taxable_inc = r_res.get('state_taxable_income', 0)
-        state_std_ded_amount = r_res.get('state_std_ded_amount',0)
+        bal_save = r_res.get('Balance_Save', 0)
+        f_save = r_res.get('Withdraw_Save', 0)
+        bal_ira = r_res.get('Balance_IRA', 0)
+        f_ira = r_res.get('Withdraw_IRA', 0)
+        bal_roth = r_res.get('Balance_Roth', 0)
+        f_roth = r_res.get('Withdraw_Roth', 0)
+        ira2roth = r_res.get('IRA_to_Roth', 0)
+        cgd = r_res.get('Capital_Gains_Distribution', 0)
+        cgd_spendable = r_res.get('CDG_Spendable', 0)
+        tax = r_res.get('Total_Tax', 0)
+        taxable_inc = r_res.get('Taxable_Income',0)
+        std_ded_amount = r_res.get('Std_Deduction_Amount',0)
+        state_taxable_inc = r_res.get('State_Taxable_Income', 0)
+        state_std_ded_amount = r_res.get('State_Std_Deduction_Amount',0)
 
 
         # Calculate effective tax rate (simplified)
@@ -697,7 +696,7 @@ def print_ascii(results, S):
         rate = fed_rate + state_rate
 
         # Calculate yearly spending = Withdrawals + Income - Expenses - Taxes
-        spending = f_save + cgd + f_ira + f_roth + S.income[year] - S.expenses[year] - tax
+        spending = f_save + cgd_spendable + f_ira + f_roth + S.income[year] - S.expenses[year] - tax
 
         ttax += tax / i_mul                     # totals in today's dollars
         tspend += spending / i_mul              # totals in today's dollars
