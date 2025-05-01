@@ -166,15 +166,50 @@ def add_min_constraints(prob, result_var, a_var, b_var, M, base_name):
     prob += b_var <= result_var + M * (1 - y), f"{base_name}_min_ge_b"
 
 
-# Helper function to implement max(a, b) using Big M
-# result = max(a,b) -> result >= a, result >= b
-# result <= a + M*y, result <= b + M*(1-y) where y is binary
 def add_max_constraints(prob, result_var, a_var, b_var, M, base_name):
+    """
+    Adds constraints to model: result_var = max(a_var, b_var).
+
+    Uses a binary indicator variable (y) and Big M formulation.
+    Logic:
+    y = 1 if a_var >= b_var, y = 0 if a_var < b_var (approximated)
+
+    1. result_var >= a_var
+    2. result_var >= b_var
+    3. Link y:
+       a_var - b_var >= -M * (1 - y)
+       a_var - b_var <= M * y
+    4. Enforce equality:
+       result_var <= a_var + M * (1 - y)  (If y=1, result_var <= a_var)
+       result_var <= b_var + M * y      (If y=0, result_var <= b_var)
+
+    Args:
+        prob: The PuLP LpProblem instance.
+        result_var: The LpVariable that will hold max(a_var, b_var).
+        a_var: The first LpVariable or expression.
+        b_var: The second LpVariable or expression.
+        M: A sufficiently large constant (Big M).
+        base_name: A string prefix for naming the auxiliary binary variable.
+    """
     y = pulp.LpVariable(f"{base_name}_max_ind", cat=pulp.LpBinary)
+    # Epsilon not typically needed here unless very strict separation is required
+    # epsilon = 1e-4
+
+    # 1 & 2: Basic bounds
     prob += result_var >= a_var, f"{base_name}_max_ge_a"
     prob += result_var >= b_var, f"{base_name}_max_ge_b"
-    prob += result_var <= a_var + M * y, f"{base_name}_max_le_a"
-    prob += result_var <= b_var + M * (1 - y), f"{base_name}_max_le_b"
+
+    # 3: Link y to which variable is potentially larger
+    # If a >= b, then y=1 is possible/required
+    prob += a_var - b_var >= -M * (1 - y), f"{base_name}_max_link1"
+    # If a < b (approx a <= b), then y=0 is possible/required
+    prob += a_var - b_var <= M * y, f"{base_name}_max_link2"
+    # To enforce strict a < b for y=0, use:
+    # prob += a_var - b_var <= M * y - epsilon, f"{base_name}_max_link2_strict"
+
+    # 4: Enforce equality using y
+    prob += result_var <= a_var + M * (1 - y), f"{base_name}_max_le_a_M"
+    prob += result_var <= b_var + M * y, f"{base_name}_max_le_b_M"
 
 
 def add_if_then_constraint(prob, condition_expr, consequence_expr, M, base_name):
