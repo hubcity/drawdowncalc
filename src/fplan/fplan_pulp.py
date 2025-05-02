@@ -109,9 +109,12 @@ class Data:
     def parse_expenses(self, S):
         """ Return array of income/expense per year """
         INC = [0] * self.numyr
+        INC_SS = [0] * self.numyr
         EXP = [0] * self.numyr
         TAX = [0] * self.numyr
+        TAX_SS = [0] * self.numyr
         STATE_TAX = [0] * self.numyr
+        STATE_TAX_SS = [0] * self.numyr
         CEILING = [50_000_000] * self.numyr
 
         for k,v in S.get('expense', {}).items():
@@ -128,7 +131,7 @@ class Data:
             for age in agelist(v['age']):
                 year_idx = age - self.retireage
                 if 0 <= year_idx < self.numyr:
-                    ceil = v.get('ceiling', 5_000_000)
+                    ceil = v.get('ceiling', 50_000_000)
                     if v.get('inflation'):
                         # Inflation applies from start age
                          ceil *= self.i_rate ** (age - self.startage)
@@ -138,21 +141,32 @@ class Data:
                     if v.get('inflation'):
                         # Inflation applies from start age
                         amount *= self.i_rate ** (age - self.startage)
-                    INC[year_idx] += amount
 
                     is_taxable = v.get('tax', False)
                     is_state_taxable = v.get('state_tax', is_taxable) # Defaults to federal taxability
 
-                    if is_taxable:
-                        TAX[year_idx] += amount
-                    if is_state_taxable:
-                         STATE_TAX[year_idx] += amount
+                    if k == 'social_security':
+                        # Social Security taxability
+                        INC_SS[year_idx] += amount
+                        TAX_SS[year_idx] += amount * 0.85
+                        if is_state_taxable:
+                            STATE_TAX_SS[year_idx] += amount * 0.85
+                    else:
+                        # Other income taxability
+                        INC[year_idx] += amount
+                        if is_taxable:
+                            TAX[year_idx] += amount
+                        if is_state_taxable:
+                            STATE_TAX[year_idx] += amount
 
         self.income = INC
         self.expenses = EXP
-        self.taxed_income = TAX             # Renamed for clarity
-        self.state_taxed_income = STATE_TAX # Renamed for clarity
-        self.income_ceiling = CEILING       # Renamed for clarity
+        self.taxed_income = TAX
+        self.state_taxed_income = STATE_TAX
+        self.social_security = INC_SS
+        self.social_security_taxed = TAX_SS
+        self.state_social_security_taxed = STATE_TAX_SS
+        self.income_ceiling = CEILING       
 
 
 # Helper function to implement min(a, b) using Big M
@@ -356,7 +370,7 @@ def prepare_pulp(args, S):
          spend_cgd = cgd[y-1] if y > 0 else 0 # Cap gains from *last* year are spendable
          # Spending = Withdrawals + Income - Expenses - Taxes
          # We want spending_floor <= yearly spendable amount / inflation multiplier
-         total_withdrawals = f_save[y] + spend_cgd + f_ira[y] + f_roth[y] + S.income[y] - S.expenses[y]
+         total_withdrawals = f_save[y] + spend_cgd + f_ira[y] + f_roth[y] + S.income[y] + S.social_security[y] - S.expenses[y]
          prob += total_withdrawals >= total_tax[y] + spending_floor * i_mul, f"Min_Spend_{y}"
          prob += excess[y] == total_withdrawals - (total_tax[y] + spending_floor * i_mul)
 #         prob += excess[y] == 0
@@ -423,7 +437,7 @@ def prepare_pulp(args, S):
         # --- Federal Tax Calculation ---
 
         # Total Non-investment Income Calculation (Federal) = IRA Withdrawals + Conversions + Taxable External Income
-        prob += ordinary_income[y] == f_ira[y] + ira_to_roth[y] + S.taxed_income[y], f"Ordinary_Income_{y}"
+        prob += ordinary_income[y] == f_ira[y] + ira_to_roth[y] + S.taxed_income[y] + S.social_security_taxed[y], f"Ordinary_Income_{y}"
 
         # --- Non-investment Income Tax Calculations ---
         # Limit amounts in std deduction and brackets
@@ -482,7 +496,7 @@ def prepare_pulp(args, S):
         nii_threshold_adj = S.nii # NII threshold typically not inflation adjusted
 
         # Simplified MAGI for this calculation
-        magi_approx = f_ira[y] + ira_to_roth[y] + S.taxed_income[y] + total_cap_gains[y]
+        magi_approx = f_ira[y] + ira_to_roth[y] + S.taxed_income[y] + S.social_security_taxed[y] + total_cap_gains[y]
         prob += fed_agi[y] == magi_approx, f"FedAGI_{y}"
 
         # NII Raw Over = MAGI - Threshold
@@ -519,7 +533,8 @@ def prepare_pulp(args, S):
 
         # State Taxable Income Calculation = Fed Taxable Income + Taxable Cap Gains - State Deduction
         # Original: state_taxable = fira + ira2roth + basis*fsave + cgd + state_taxed_extra
-        prob += state_ordinary_income[y] == f_ira[y] + ira_to_roth[y] + f_save[y] * taxable_part_of_f_save + cgd[y] + S.state_taxed_income[y], f"StateTaxableIncome_{y}"
+        prob += state_ordinary_income[y] == f_ira[y] + ira_to_roth[y] + f_save[y] * taxable_part_of_f_save \
+            + cgd[y] + S.state_taxed_income[y]+ S.state_social_security_taxed[y], f"StateTaxableIncome_{y}"
         prob += state_agi[y] == state_ordinary_income[y], f"StateAGI_{y}"
 
         # State Tax Calculation
@@ -541,7 +556,7 @@ def prepare_pulp(args, S):
 
         # Income Ceiling Constraint (Original A+b constraint)
         # fira + ira2roth + taxed_extra + basis*fsave + cgd <= ceiling
-        if (S.income_ceiling[y] < 5000000):
+        if (S.income_ceiling[y] < 50_000_000):
             prob += fed_agi[y] <= S.income_ceiling[y], f"IncomeCeiling_{y}"
 
         # RMD Constraint (age >= 73)
@@ -698,7 +713,7 @@ def print_ascii(results, S):
         rate = fed_rate + state_rate
 
         # Calculate yearly spending = Withdrawals + Income - Expenses - Taxes
-        spending = f_save + cgd_spendable + f_ira + f_roth + S.income[year] / i_mul - S.expenses[year] / i_mul - tax
+        spending = f_save + cgd_spendable + f_ira + f_roth + (S.income[year] + S.social_security[year]) / i_mul - S.expenses[year] / i_mul - tax
 
         ttax += tax 
         tspend += spending
@@ -748,11 +763,11 @@ def print_csv(results, S):
 
 #        spend_cgd = results['retire'][year-1]['cgd'] if year > 0 else 0
         spend_cgd = r_res.get('CGD_Spendable', 0)
-        spending_inf = f_save + spend_cgd + f_ira + f_roth + S.income[year] / i_mul - S.expenses[year] / i_mul - total_tax
+        spending_inf = f_save + spend_cgd + f_ira + f_roth + (S.income[year] + S.social_security[year]) / i_mul - S.expenses[year] / i_mul - total_tax
         spend_goal_inf = spending_floor_val
 
 
-        print(f"{age},{bal_save:.0f},{f_save:.0f},{bal_ira:.0f},{f_ira:.0f},{bal_roth:.0f},{f_roth:.0f},{ira2roth:.0f},{S.income[year] / i_mul:.0f},{S.expenses[year] / i_mul:.0f},{cgd:.0f},{fed_tax:.0f},{state_tax:.0f},{total_tax:.0f},{spend_goal_inf:.0f},{spending_inf:.0f}")
+        print(f"{age},{bal_save:.0f},{f_save:.0f},{bal_ira:.0f},{f_ira:.0f},{bal_roth:.0f},{f_roth:.0f},{ira2roth:.0f},{(S.income[year] + S.social_security[year]) / i_mul:.0f},{S.expenses[year] / i_mul:.0f},{cgd:.0f},{fed_tax:.0f},{state_tax:.0f},{total_tax:.0f},{spend_goal_inf:.0f},{spending_inf:.0f}")
 
 
 def main():
