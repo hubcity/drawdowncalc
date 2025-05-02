@@ -1,0 +1,170 @@
+import re
+try:
+    import tomllib
+except ModuleNotFoundError:
+    import tomli as tomllib
+
+# Required Minimal Distributions from IRA starting with age 73
+# last updated for 2024
+RMD = [27.4, 26.5, 25.5, 24.6, 23.7, 22.9, 22.0, 21.1, 20.2, 19.4,  # age 72-81
+       18.5, 17.7, 16.8, 16.0, 15.3, 14.5, 13.7, 12.9, 12.2, 11.5,  # age 82-91
+       10.8, 10.1,  9.5,  8.9,  8.4,  7.8,  7.3,  6.8,  6.4,  6.0,  # age 92-101
+        5.6,  5.2,  4.9,  4.6,  4.3,  4.1,  3.9,  3.7,  3.5,  3.4,  # age 102+
+        3.3,  3.1,  3.0,  2.9,  2.8,  2.7,  2.5,  2.3,  2.0,  2.0]
+
+def agelist(str_val):
+    for x in str_val.split(','):
+        m = re.match(r'^(\d+)(-(\d+)?)?$', x)
+        if m:
+            s = int(m.group(1))
+            e = s
+            if m.group(2):
+                e = m.group(3)
+                if e:
+                    e = int(e)
+                else:
+                    e = 120
+            for a in range(s,e+1):
+                yield a
+        else:
+            raise Exception("Bad age " + str_val)
+
+class Data:
+    def load_file(self, file):
+        # global vper # Not needed with PuLP variables
+        with open(file) as conffile:
+            d = tomllib.loads(conffile.read())
+        self.i_rate = 1 + d.get('inflation', 0) / 100       # inflation rate: 2.5 -> 1.025
+        self.r_rate = 1 + d.get('returns', 6) / 100         # invest rate: 6 -> 1.06
+
+        self.startage = d['startage']
+        self.halfage = self.startage
+        self.birthmonth = d.get('birthmonth', 1)
+        if (self.birthmonth >= 7):
+            self.halfage = self.startage - 1.0
+        self.endage = d.get('endage', max(96, self.startage+5))
+
+        # 2023 tax table (could predict it moves with inflation?)
+        # married joint at the moment, can override in config file
+        default_taxrates = [[0,      10],
+                            [22000,  12],
+                            [89450 , 22],
+                            [190750, 24],
+                            [364200, 32],
+                            [462500, 35],
+                            [693750, 37]]
+        default_stded = 27700
+        default_state_taxrates = [[0, 0]]
+        default_cg_taxrates = [[0,        0],
+                               [89250,   15],
+                               [553850,  20]]
+
+        tmp_taxrates = default_taxrates
+        tmp_state_taxrates = default_state_taxrates
+        tmp_cg_taxrates = default_cg_taxrates
+
+        if 'taxes' in d:
+            tmp_taxrates = d['taxes'].get('taxrates', default_taxrates)
+            tmp_state_taxrates = d['taxes'].get('state_rate', default_state_taxrates)
+            tmp_cg_taxrates = d['taxes'].get('cg_taxrates', default_cg_taxrates)
+            if (type(tmp_state_taxrates) is not list):
+                tmp_state_taxrates = [[0, tmp_state_taxrates]]
+            self.stded = d['taxes'].get('stded', default_stded)
+            self.state_stded = d['taxes'].get('state_stded', self.stded)
+            self.nii = d['taxes'].get('nii', 250000)
+        else:
+            self.stded = default_stded
+            self.state_stded = default_stded
+            self.nii = 250000
+        self.taxrates = [[x,y/100.0] for (x,y) in tmp_taxrates]
+        cutoffs = [x[0] for x in self.taxrates][1:] + [float('inf')]
+        self.taxtable = list(map(lambda x, y: [x[1], x[0], y], self.taxrates, cutoffs))
+        self.state_taxrates = [[x,y/100.0] for (x,y) in tmp_state_taxrates]
+        cutoffs = [x[0] for x in self.state_taxrates][1:] + [float('inf')]
+        self.state_taxtable = list(map(lambda x, y: [x[1], x[0], y], self.state_taxrates, cutoffs))
+        self.cg_taxrates = [[x,y/100.0] for (x,y) in tmp_cg_taxrates]
+        cutoffs = [x[0] for x in self.cg_taxrates][1:] + [float('inf')]
+        self.cg_taxtable = list(map(lambda x, y: [x[1], x[0], y], self.cg_taxrates, cutoffs))
+
+        # vper calculations not needed for PuLP variable setup
+        self.retireage = self.startage
+        self.numyr = self.endage - self.retireage
+
+        self.aftertax = d.get('aftertax', {'bal': 0})
+        if 'basis' not in self.aftertax:
+            self.aftertax['basis'] = 0
+        if 'distributions' not in self.aftertax:
+            self.aftertax['distributions'] = 0.0
+        self.aftertax['distributions'] *= 0.01
+
+        self.IRA = d.get('IRA', {'bal': 0})
+
+        self.roth = d.get('roth', {'bal': 0})
+        if 'contributions' not in self.roth:
+            self.roth['contributions'] = []
+
+        self.parse_expenses(d)
+
+    def parse_expenses(self, S):
+        """ Return array of income/expense per year """
+        INC = [0] * self.numyr
+        INC_SS = [0] * self.numyr
+        EXP = [0] * self.numyr
+        TAX = [0] * self.numyr
+        TAX_SS = [0] * self.numyr
+        STATE_TAX = [0] * self.numyr
+        STATE_TAX_SS = [0] * self.numyr
+        CEILING = [50_000_000] * self.numyr
+
+        for k,v in S.get('expense', {}).items():
+            for age in agelist(v['age']):
+                year_idx = age - self.retireage
+                if 0 <= year_idx < self.numyr:
+                    amount = v['amount']
+                    if v.get('inflation'):
+                        # Inflation applies from start age
+                        amount *= self.i_rate ** (age - self.startage)
+                    EXP[year_idx] += amount
+
+        for k,v in S.get('income', {}).items():
+            firstyear = True
+            for age in agelist(v['age']):
+                year_idx = age - self.retireage
+                if 0 <= year_idx < self.numyr:
+                    ceil = v.get('ceiling', 50_000_000)
+                    if v.get('inflation'):
+                        # Inflation applies from start age
+                         ceil *= self.i_rate ** (age - self.startage)
+                    CEILING[year_idx] = min(CEILING[year_idx], ceil)
+
+                    amount = v['amount']
+                    if v.get('inflation'):
+                        # Inflation applies from start age
+                        amount *= self.i_rate ** (age - self.startage)
+
+                    is_taxable = v.get('tax', False)
+                    is_state_taxable = v.get('state_tax', is_taxable) # Defaults to federal taxability
+
+                    if k == 'social_security':
+                        # Social Security taxability
+                        prorated_amount = amount if not firstyear else (13 - self.birthmonth) / 12 * amount
+                        INC_SS[year_idx] += prorated_amount
+                        TAX_SS[year_idx] += prorated_amount * 0.85
+                        if is_state_taxable:
+                            STATE_TAX_SS[year_idx] += prorated_amount * 0.85
+                    else:
+                        # Other income taxability
+                        INC[year_idx] += amount
+                        if is_taxable:
+                            TAX[year_idx] += amount
+                        if is_state_taxable:
+                            STATE_TAX[year_idx] += amount
+                firstyear = False
+        self.income = INC
+        self.expenses = EXP
+        self.taxed_income = TAX
+        self.state_taxed_income = STATE_TAX
+        self.social_security = INC_SS
+        self.social_security_taxed = TAX_SS
+        self.state_social_security_taxed = STATE_TAX_SS
+        self.income_ceiling = CEILING
