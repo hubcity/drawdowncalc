@@ -43,6 +43,10 @@ class Data:
         self.r_rate = 1 + d.get('returns', 6) / 100         # invest rate: 6 -> 1.06
 
         self.startage = d['startage']
+        self.halfage = self.startage
+        self.birthmonth = d.get('birthmonth', 1)
+        if (self.birthmonth >= 7):
+            self.halfage = self.startage - 1.0
         self.endage = d.get('endage', max(96, self.startage+5))
 
         # 2023 tax table (could predict it moves with inflation?)
@@ -128,6 +132,7 @@ class Data:
                     EXP[year_idx] += amount
 
         for k,v in S.get('income', {}).items():
+            firstyear = True
             for age in agelist(v['age']):
                 year_idx = age - self.retireage
                 if 0 <= year_idx < self.numyr:
@@ -147,10 +152,11 @@ class Data:
 
                     if k == 'social_security':
                         # Social Security taxability
-                        INC_SS[year_idx] += amount
-                        TAX_SS[year_idx] += amount * 0.85
+                        prorated_amount = amount if not firstyear else (13 - self.birthmonth) / 12 * amount
+                        INC_SS[year_idx] += prorated_amount
+                        TAX_SS[year_idx] += prorated_amount * 0.85
                         if is_state_taxable:
-                            STATE_TAX_SS[year_idx] += amount * 0.85
+                            STATE_TAX_SS[year_idx] += prorated_amount * 0.85
                     else:
                         # Other income taxability
                         INC[year_idx] += amount
@@ -158,7 +164,7 @@ class Data:
                             TAX[year_idx] += amount
                         if is_state_taxable:
                             STATE_TAX[year_idx] += amount
-
+                firstyear = False
         self.income = INC
         self.expenses = EXP
         self.taxed_income = TAX
@@ -524,7 +530,7 @@ def prepare_pulp(args, S):
         prob += fed_tax_nii[y] == nii_vars[y, 'cg_portion'] * 0.038 # NII tax rate
         fed_tax_calc += fed_tax_nii[y] # Add NII tax based on the allocated portion
 
-        if age < 59:
+        if S.halfage + y < 59:
             prob += fed_tax_early_withdrawal[y] == f_ira[y] * 0.1, f"FedTaxEarlyWithdraw_{y}"
             prob += fed_tax[y] == fed_tax_calc + fed_tax_early_withdrawal[y], f"FedTaxCalc_{y}"
         else:
@@ -581,7 +587,7 @@ def prepare_pulp(args, S):
 
         # Roth Contribution Aging (5-year rule for conversions, contributions assumed available)
         # Before age 59.5, withdrawals limited to contributions + qualified conversions
-        if age < 59: # Use 59 as threshold like original
+        if S.halfage + y < 59: # Use 59 as threshold like original
              # Withdrawals (f_roth)) <= Basis
              # Basis = Initial Contributions + Work Contributions + Conversions older than 5 years
              aged_conversions = pulp.lpSum(ira_to_roth[conv_y] for conv_y in range(max(0, y - 4))) # Sum conversions from >= 5 years ago
@@ -640,7 +646,7 @@ def retrieve_results(args, S, prob):
 
     for y in years_retire:
         i_mul = S.i_rate ** y
-        adjust = min(all_values[f'IRA_to_Roth_{y}'], all_values[f'Withdraw_Roth_{y}']) if y+S.startage > 59 else 0
+        adjust = min(all_values[f'IRA_to_Roth_{y}'], all_values[f'Withdraw_Roth_{y}']) if S.halfage+y >= 59 else 0
         adjust = adjust / i_mul
         results['retire'][y] = {
             a: all_values[f'{a}_{y}'] / i_mul for a in all_names
