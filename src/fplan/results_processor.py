@@ -5,7 +5,7 @@ def retrieve_results(args, S, prob):
     all_values = { v.name: v.varValue for v in prob.variables() }
     all_names = ['Balance_Save', 'Withdraw_Save', 'Balance_IRA', 'Withdraw_IRA', 'Balance_Roth', 'Withdraw_Roth', 'IRA_to_Roth',
                   'Ordinary_Income', 'State_Ordinary_Income', 'Fed_Tax', 'State_Tax', 'Total_Tax', 'Capital_Gains_Distribution',
-                  'Std_Deduction_Amount', 'State_Std_Deduction_Amount', 'Excess']
+                  'Std_Deduction_Amount', 'State_Std_Deduction_Amount', 'Excess', 'Fed_AGI', 'ACA_HC_Payment']
 #    # Extract results into a dictionary or similar structure for printing
     results = {
         'spending_floor': all_values['SpendingFloor'],
@@ -41,9 +41,9 @@ def print_ascii(results, S):
     print(f"Yearly spending floor (today's dollars) <= {spending_floor_val:.0f}")
     print()
 
-    print((" age" + " %6s" * 11) % # Adjusted column count
+    print((" age" + " %6s" * 13) % # Adjusted column count
           ("bSAVE", "wSAVE", "bIRA", "wIRA", "bROTH", "wROTH", "IRA2R",
-           "Excess", "Tax", "Spend", "CGD")) # b=balance, w=withdrawal/conversion
+           "Excess", "Tax", "Spend", "CGD", "AGI", "ACA")) # b=balance, w=withdrawal/conversion
     ttax = 0.0
     tspend = 0.0 # Total spending in today's dollars
 
@@ -68,6 +68,8 @@ def print_ascii(results, S):
         state_taxable_inc = r_res.get('State_Ordinary_Income', 0)
         state_std_ded_amount = r_res.get('State_Std_Deduction_Amount',0)
         excess = r_res.get('Excess', 0)
+        agi = r_res.get('Fed_AGI', 0)
+        aca = r_res.get('ACA_HC_Payment', 0)
 
         # Calculate effective tax rate (simplified)
         inc_above_std = max(0, taxable_inc - std_ded_amount)
@@ -89,17 +91,19 @@ def print_ascii(results, S):
         rate = fed_rate + state_rate
 
         # Calculate yearly spending = Withdrawals + Income - Expenses - Taxes
-        spending = -excess + f_save + cgd_spendable + f_ira + f_roth + (S.income[year] + S.social_security[year]) / i_mul - S.expenses[year] / i_mul - tax
+        spending = -excess + f_save + cgd_spendable + f_ira + f_roth \
+            + S.income[year] / i_mul + S.social_security[year] / i_mul \
+            - S.expenses[year] / i_mul - aca - tax
 
         ttax += tax
         tspend += spending
         div_by = 1000
-        print((" %3d:" + " %6.0f" * 11) %
+        print((" %3d:" + " %6.0f" * 13) %
               (age,
                bal_save / div_by, f_save / div_by,
                bal_ira / div_by, f_ira / div_by,
                bal_roth / div_by, f_roth / div_by, ira2roth / div_by,
-               excess / div_by, tax / div_by, spending / div_by, cgd / div_by))
+               excess / div_by, tax / div_by, spending / div_by, cgd / div_by, agi / div_by, aca / div_by))
 
     print("\nTotal spending (today's dollars): %.0f" % tspend)
     print("Total tax (today's dollars): %.0f" % ttax)
@@ -137,10 +141,13 @@ def print_csv(results, S):
         state_tax = r_res.get('State_Tax', 0)
         total_tax = r_res.get('Total_Tax', 0)
         excess = r_res.get('Excess', 0)
+        aca = r_res.get('ACA_HC_Payment', 0)
 
 #        spend_cgd = results['retire'][year-1]['cgd'] if year > 0 else 0
         spend_cgd = r_res.get('CGD_Spendable', 0)
-        spending_inf = -excess + f_save + spend_cgd + f_ira + f_roth + (S.income[year] + S.social_security[year]) / i_mul - S.expenses[year] / i_mul - total_tax
+        spending_inf = -excess + f_save + spend_cgd + f_ira + f_roth \
+            + S.income[year] / i_mul + S.social_security[year] / i_mul \
+            - S.expenses[year] / i_mul - aca - total_tax
         spend_goal_inf = spending_floor_val
 
 
