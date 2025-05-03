@@ -89,7 +89,7 @@ def print_ascii(results, S):
         rate = fed_rate + state_rate
 
         # Calculate yearly spending = Withdrawals + Income - Expenses - Taxes
-        spending = f_save + cgd_spendable + f_ira + f_roth + (S.income[year] + S.social_security[year]) / i_mul - S.expenses[year] / i_mul - tax
+        spending = -excess + f_save + cgd_spendable + f_ira + f_roth + (S.income[year] + S.social_security[year]) / i_mul - S.expenses[year] / i_mul - tax
 
         ttax += tax
         tspend += spending
@@ -136,10 +136,11 @@ def print_csv(results, S):
         fed_tax = r_res.get('Fed_Tax', 0)
         state_tax = r_res.get('State_Tax', 0)
         total_tax = r_res.get('Total_Tax', 0)
+        excess = r_res.get('Excess', 0)
 
 #        spend_cgd = results['retire'][year-1]['cgd'] if year > 0 else 0
         spend_cgd = r_res.get('CGD_Spendable', 0)
-        spending_inf = f_save + spend_cgd + f_ira + f_roth + (S.income[year] + S.social_security[year]) / i_mul - S.expenses[year] / i_mul - total_tax
+        spending_inf = -excess + f_save + spend_cgd + f_ira + f_roth + (S.income[year] + S.social_security[year]) / i_mul - S.expenses[year] / i_mul - total_tax
         spend_goal_inf = spending_floor_val
 
 
