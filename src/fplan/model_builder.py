@@ -310,21 +310,23 @@ def prepare_pulp(args, S):
             # prob += ira_to_roth[y] == 0, f"RMD_Convert_{y}" # No conversions if RMD is required
 
 
-        # Roth Contribution Aging (5-year rule for conversions, contributions assumed available)
-        # Before age 59.5, withdrawals limited to contributions + qualified conversions
-        if S.halfage + y < 59: # Use 59 as threshold like original
-             # Withdrawals (f_roth)) <= Basis
-             # Basis = Initial Contributions + Work Contributions + Conversions older than 5 years
-             aged_conversions = pulp.lpSum(ira_to_roth[conv_y] for conv_y in range(max(0, y - 4))) # Sum conversions from >= 5 years ago
+        # Roth Conversion Aging (5-year rule for conversions) with an additional requirement that the account be open for 5 years for full access
+        # This is more strict than the IRS rules, but simplier to implement
+        age_account_open = min([ca for ca, _ in S.roth['contributions']], default=S.retireage)
+        if not ((S.halfage + y >= 59) and (S.retireage + y - age_account_open >= 5)):
+#             print("Restricting Roth Conversions ", S.retireage + y)
+             aged_conversions = pulp.lpSum(ira_to_roth[conv_y] for conv_y in range(max(0, y - 4))) \
+                                - pulp.lpSum(f_roth[conv_y] for conv_y in range(y)) # Sum conversions from >= 5 years ago less withdrawals
 
              # Calculate contributions basis available in year y
              initial_contrib_basis = 0
              for contrib_age, contrib_amount in S.roth['contributions']:
-                  # Assume contributions are available immediately (or check 5-year rule if needed)
-                  initial_contrib_basis += contrib_amount # Simplification: Assume all initial contribs are withdrawable
+                  if S.retireage + y - contrib_age >= 5:
+                      initial_contrib_basis += contrib_amount
 
              total_basis = initial_contrib_basis + aged_conversions
              prob += f_roth[y] <= total_basis, f"RothBasisLimit_{y}"
+        
 
 
     # Final Balance Non-Negative Constraints (End of last year)
