@@ -127,13 +127,14 @@ def prepare_pulp(args, S):
         objectives = [spending_floor,
                       - 1 * pulp.lpSum(total_tax[y] * 1 / (S.i_rate ** y) for y in years_retire) \
                       - 0.1 * pulp.lpSum(smooth[y] for y in range(S.numyr-1))]
-    objectives = [objectives[0]]
+
     # --- Constraints ---
 
     # --- Retirement Year Constraints ---
     for y in years_retire:
         i_mul = S.i_rate ** y
         tax_i_mul = ((S.i_rate - 0.01) ** y) if (args.pessimistic_taxes) else i_mul
+        hc_i_mul = ((S.i_rate + 0.01) ** y) if (args.pessimistic_healthcare) else i_mul
         age = y + S.retireage
 
         # Calculate basis_percent (as used in state tax, NII, CG calcs)
@@ -275,29 +276,23 @@ def prepare_pulp(args, S):
         prob += state_agi[y] == state_ordinary_income[y], f"StateAGI_{y}"
 
         # aca premium subsidy
-#        if (S.retireage + y <= 65):
-#            if S.retireage + y == 65:
-#                prob += hc_payment[y] == ((S.aca['premium'] * i_mul)) * (S.birthmonth -1)
-#            else:
-#                prob += hc_payment[y] == ((S.aca['premium'] * i_mul)) * 12
-
-        # Here is a reasonable first cut of an approximation of the ACA subsidy.
-        # The only problem is that it seems to run forever.  Or for at least an hour, I stopped it before it finished.
-        # No one is going to wait an hour.  Commenting out some lines so that there is only 1 subsidy cutoff and
-        # it does seem to work, but adding multiple cut-offs kills the optimizer.
-        if (S.retireage + y <= 65) and (S.aca['premium'] > 0) and (S.aca['slcsp'] > 0):
-            pu.add_if_then_constraint(prob, fed_agi[y] - 3.5 * 16000 * i_mul, (0.085 * fed_agi[y])/12.0 - min_payment[y], M, f"FPL_400_{y}")
-            pu.add_if_then_constraint(prob, fed_agi[y] - 3.0 * 16000 * i_mul, (0.0725 * fed_agi[y])/12.0 - min_payment[y], M, f"FPL_350_{y}")
-            pu.add_if_then_constraint(prob, fed_agi[y] - 2.5 * 16000 * i_mul, (0.06 * fed_agi[y])/12.0 - min_payment[y], M, f"FPL_300_{y}")
-#            prob += fed_agi[y] <= 3.0 * 16000 * i_mul, f"FPL_400_{y}"
-            prob += min_payment[y] >= (0.04 * fed_agi[y])/12.0, f"FPL_250_{y}"
-            prob += raw_help[y] <= (S.aca['premium'] * i_mul)
-            prob += raw_help[y] <= (S.aca['slcsp'] * i_mul) - min_payment[y]
+        # This simple calculation (uses 8.5% for everyone) underestimates most ACA 
+        # subsidies, especially for those with low AGI.  It is reasonably fast to calculate 
+        # and better than ignoring subsidies altogether.
+        if (S.retireage + y <= 65) and (S.aca['slcsp'] > 0):
+            prob += min_payment[y] >= (8.5 / 100.0 * fed_agi[y]) / 12.0, f"Min_Payment_{y}"
+            prob += raw_help[y] <= (S.aca['premium'] * hc_i_mul)    # Based on your personal HC costs increase
+            prob += raw_help[y] <= (S.aca['slcsp'] * i_mul) - min_payment[y]  # Based on general inflation increase
             pu.add_max_constraints(prob, help[y], raw_help[y], 0, M, f"Help_{y}")
             if S.retireage + y == 65:
-                prob += hc_payment[y] == ((S.aca['premium'] * i_mul) - help[y]) * (S.birthmonth -1)
+                prob += hc_payment[y] == ((S.aca['premium'] * hc_i_mul) - help[y]) * (S.birthmonth -1)
             else:
-                prob += hc_payment[y] == ((S.aca['premium'] * i_mul) - help[y]) * 12
+                prob += hc_payment[y] == ((S.aca['premium'] * hc_i_mul) - help[y]) * 12
+        elif (S.retireage + y <= 65):
+            if S.retireage + y == 65:
+                prob += hc_payment[y] == ((S.aca['premium'] * hc_i_mul)) * (S.birthmonth -1)
+            else:
+                prob += hc_payment[y] == ((S.aca['premium'] * hc_i_mul)) * 12
 
 
         # State Tax Calculation
@@ -371,7 +366,8 @@ def prepare_pulp(args, S):
         prob += (bal_roth[final_year] - f_roth[final_year] + ira_to_roth[final_year]) * S.r_rate >= 0, "FinalRothNonNeg"
 
 #    prob.setObjective(objectives[0])
-#    prob.writeLP("fplan.lp") # Write the LP file for debugging
+#    prob += objectives[0], "Objective"
+#    prob.writeMPS("fplan.mps") # Write the LP file for debugging
 
     # --- Solve ---
     solver_options = {}

@@ -41,6 +41,7 @@ def main():
     for relTol in [0.9999, 0.999, 0.99]:
         prob, solver, objectives = mb.prepare_pulp(args, S) # Prepare the problem for solving
         print(f"Searching solution with relTol={relTol}")
+        objectives = [objectives[0]]
         prob.sequentialSolve(objectives, relativeTols=[relTol]*len(objectives), solver=solver)
         status = pulp.LpStatus[prob.status]
         if status == "Optimal":
