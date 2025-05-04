@@ -374,7 +374,7 @@ tax_retirement_income = false # No state income tax
 
 # District of Columbia (Provided by user previously, verified for 2024)
 [DC_Single]
-standard_deduction = 14600 # Matches federal for 2024
+standard_deduction = 15000 # Matches federal for 2024
 brackets = [[0, 4.0], [10000, 6.0], [40000, 6.5], [60000, 8.5], [250000, 9.25], [500000, 9.75], [1000000, 10.75]]
 tax_social_security = false
 tax_retirement_income = true # Generally taxed, public pension exclusion up to $3k.

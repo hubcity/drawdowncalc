@@ -2,3 +2,4 @@
 scott.toml
 dist
 **.pyc
+.venv

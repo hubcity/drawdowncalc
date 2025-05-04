@@ -196,11 +196,11 @@ class Data:
                     CEILING[year_idx] = min(CEILING[year_idx], ceil)
 
                     amount = v['amount']
-                    if v.get('inflation'):
+                    if v.get('inflation') or (k == 'social_security'):
                         # Inflation applies from start age
                         amount *= self.i_rate ** (age - self.startage)
 
-                    is_taxable = v.get('tax', False)
+                    is_taxable = v.get('tax', (k == 'social_security'))
                     is_state_taxable = v.get('state_tax', is_taxable) # Defaults to federal taxability
 
                     if k == 'social_security':
