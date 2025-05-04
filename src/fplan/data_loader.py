@@ -1,4 +1,5 @@
 import re
+import os
 try:
     import tomllib
 except ModuleNotFoundError:
@@ -31,6 +32,7 @@ def agelist(str_val):
 
 class Data:
     def load_file(self, file):
+        print(f"Loading configuration from: {file}")
         # global vper # Not needed with PuLP variables
         with open(file) as conffile:
             d = tomllib.loads(conffile.read())
@@ -62,7 +64,11 @@ class Data:
         tmp_taxrates = default_taxrates
         tmp_state_taxrates = default_state_taxrates
         tmp_cg_taxrates = default_cg_taxrates
+        self.stded = default_stded
+        self.state_stded = default_stded
+        self.nii = 250000
 
+        state_abbr = None
         if 'taxes' in d:
             tmp_taxrates = d['taxes'].get('taxrates', default_taxrates)
             tmp_state_taxrates = d['taxes'].get('state_rate', default_state_taxrates)
@@ -72,10 +78,57 @@ class Data:
             self.stded = d['taxes'].get('stded', default_stded)
             self.state_stded = d['taxes'].get('state_stded', self.stded)
             self.nii = d['taxes'].get('nii', 250000)
-        else:
-            self.stded = default_stded
-            self.state_stded = default_stded
-            self.nii = 250000
+            state_abbr = d['taxes'].get('state', None)
+
+            # --- Load Federal Tax Data ---
+            filing_status = d['taxes'].get('filing_status', 'MFJ') # Default to MFJ if not specified
+            federal_tax_file_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), 'reference', 'taxes_federal.toml')
+            print(f"Attempting to load federal tax data from: {federal_tax_file_path}")
+            federal_section_key = f"Federal_{filing_status}"
+
+            try:
+                with open(federal_tax_file_path, 'rb') as f:
+                    all_federal_data = tomllib.load(f)
+                federal_data = all_federal_data.get(federal_section_key)
+                if federal_data:
+                    print(f"Found federal tax data for filing status: {filing_status}")
+                    tmp_taxrates = federal_data.get('brackets', tmp_taxrates)
+                    self.stded = federal_data.get('standard_deduction', self.stded)
+                    self.nii = federal_data.get('net_investment_income_threshold', self.nii)
+                    tmp_cg_taxrates = federal_data.get('capital_gains_taxrates', tmp_cg_taxrates)
+                else:
+                    print(f"Warning: Federal tax section '{federal_section_key}' not found in {federal_tax_file_path}. Using default MFJ values.")
+            except FileNotFoundError:
+                print(f"Warning: Federal tax file not found at {federal_tax_file_path}. Using default MFJ values.")
+            except Exception as e:
+                print(f"Error loading federal tax data: {e}. Using default MFJ values.")
+            # --- State Tax Loading Logic ---
+            if state_abbr:
+                state_abbr = state_abbr.upper()
+                # Assume reference/taxes_state.toml is relative to the project root or accessible path
+                # A more robust approach might involve package resources or a fixed config path
+                state_tax_file_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), 'reference', 'taxes_state.toml')
+                print(f"Attempting to load state tax data from: {state_tax_file_path}")
+                try:
+                    with open(state_tax_file_path, 'rb') as f: # Use 'rb' for tomllib
+                        all_state_data = tomllib.load(f)
+                    heading = f'{state_abbr}_{filing_status}'
+                    state_data = all_state_data.get(heading)
+                    if state_data:
+                        print(f"Found tax data for state: {heading}")
+                        tmp_state_taxrates = state_data.get('brackets', default_state_taxrates)
+                        self.state_stded = state_data.get('standard_deduction', 0) # Default to 0 if not specified for the state
+                        self.state_taxes_ss = state_data.get('tax_social_security', True)
+                        self.state_taxes_retirement_income = state_data.get('tax_retirement_income', True)
+                    else:
+                        print(f"Warning: State abbreviation '{heading}' not found in {state_tax_file_path}. Defaulting to no state tax.")
+                        tmp_state_taxrates = default_state_taxrates
+                        self.state_stded = 0
+                except FileNotFoundError:
+                    print(f"Warning: State tax file not found at {state_tax_file_path}. Defaulting to no state tax.")
+                    tmp_state_taxrates = default_state_taxrates
+                    self.state_stded = 0
+
         self.taxrates = [[x,y/100.0] for (x,y) in tmp_taxrates]
         cutoffs = [x[0] for x in self.taxrates][1:] + [float('inf')]
         self.taxtable = list(map(lambda x, y: [x[1], x[0], y], self.taxrates, cutoffs))
@@ -103,7 +156,10 @@ class Data:
         if 'contributions' not in self.roth:
             self.roth['contributions'] = []
 
-        self.aca = d.get('aca', {'premium': 0, 'slcsp': 0, 'people': 1})
+        self.aca = d.get('aca', {'premium': 0, 'slcsp': 0,})
+
+        print(self.taxtable)
+        print(self.state_taxtable)
 
         self.parse_expenses(d)
 
@@ -152,7 +208,7 @@ class Data:
                         prorated_amount = amount if not firstyear else (13 - self.birthmonth) / 12 * amount
                         INC_SS[year_idx] += prorated_amount
                         TAX_SS[year_idx] += prorated_amount * 0.85
-                        if is_state_taxable:
+                        if self.state_taxes_ss:
                             STATE_TAX_SS[year_idx] += prorated_amount * 0.85
                     else:
                         # Other income taxability
