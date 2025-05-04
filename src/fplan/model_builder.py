@@ -53,6 +53,12 @@ def prepare_pulp(args, S):
     required_RMD = pulp.LpVariable.dicts("Required_RMD", years_retire, lowBound=0) # Required Minimum Distribution Amount
     excess = pulp.LpVariable.dicts("Excess", years_retire, lowBound=0) # Excess Withdrawal
 
+    # ACA
+    min_payment = pulp.LpVariable.dicts("ACA_Min_Payment", years_retire, lowBound=0) # ACA Minimum Payment
+    raw_help = pulp.LpVariable.dicts("ACA_Raw_Help", years_retire, cat=pulp.LpContinuous) # ACA Raw Help
+    help = pulp.LpVariable.dicts("ACA_Help", years_retire, lowBound=0) # ACA Help
+    hc_payment = pulp.LpVariable.dicts("ACA_HC_Payment", years_retire, lowBound=0) # ACA Health Care Payment
+
     # Federal Tax Brackets
     std_deduction_amount = pulp.LpVariable.dicts("Std_Deduction_Amount", years_retire, lowBound=0)
     tax_bracket_amount = pulp.LpVariable.dicts("Tax_Bracket_Amount", [(y,j) for y in years_retire for j in range(len(S.taxtable))], lowBound=0)
@@ -101,7 +107,7 @@ def prepare_pulp(args, S):
          spend_cgd = cgd[y-1] if y > 0 else 0 # Cap gains from *last* year are spendable
          # Spending = Withdrawals + Income - Expenses - Taxes
          # We want spending_floor <= yearly spendable amount / inflation multiplier
-         total_withdrawals = f_save[y] + spend_cgd + f_ira[y] + f_roth[y] + S.income[y] + S.social_security[y] - S.expenses[y]
+         total_withdrawals = f_save[y] + spend_cgd + f_ira[y] + f_roth[y] + S.income[y] + S.social_security[y] - S.expenses[y] - hc_payment[y]
          prob += total_withdrawals >= total_tax[y] + spending_floor * i_mul, f"Min_Spend_{y}"
          prob += excess[y] == total_withdrawals - (total_tax[y] + spending_floor * i_mul)
 #         prob += excess[y] == 0
@@ -128,6 +134,7 @@ def prepare_pulp(args, S):
     for y in years_retire:
         i_mul = S.i_rate ** y
         tax_i_mul = ((S.i_rate - 0.01) ** y) if (args.pessimistic_taxes) else i_mul
+        hc_i_mul = ((S.i_rate + 0.01) ** y) if (args.pessimistic_healthcare) else i_mul
         age = y + S.retireage
 
         # Calculate basis_percent (as used in state tax, NII, CG calcs)
@@ -268,6 +275,26 @@ def prepare_pulp(args, S):
             + cgd[y] + S.state_taxed_income[y]+ S.state_social_security_taxed[y], f"StateTaxableIncome_{y}"
         prob += state_agi[y] == state_ordinary_income[y], f"StateAGI_{y}"
 
+        # aca premium subsidy
+        # This simple calculation (uses 8.5% for everyone) underestimates most ACA 
+        # subsidies, especially for those with low AGI.  It is reasonably fast to calculate 
+        # and better than ignoring subsidies altogether.
+        if (S.retireage + y <= 65) and (S.aca['slcsp'] > 0):
+            prob += min_payment[y] >= (8.5 / 100.0 * fed_agi[y]) / 12.0, f"Min_Payment_{y}"
+            prob += raw_help[y] <= (S.aca['premium'] * hc_i_mul)    # Based on your personal HC costs increase
+            prob += raw_help[y] <= (S.aca['slcsp'] * i_mul) - min_payment[y]  # Based on general inflation increase
+            pu.add_max_constraints(prob, help[y], raw_help[y], 0, M, f"Help_{y}")
+            if S.retireage + y == 65:
+                prob += hc_payment[y] == ((S.aca['premium'] * hc_i_mul) - help[y]) * (S.birthmonth -1)
+            else:
+                prob += hc_payment[y] == ((S.aca['premium'] * hc_i_mul) - help[y]) * 12
+        elif (S.retireage + y <= 65):
+            if S.retireage + y == 65:
+                prob += hc_payment[y] == ((S.aca['premium'] * hc_i_mul)) * (S.birthmonth -1)
+            else:
+                prob += hc_payment[y] == ((S.aca['premium'] * hc_i_mul)) * 12
+
+
         # State Tax Calculation
 #        add_min_constraints(prob, state_std_deduction_used[y], state_std_deduction_amount[y], state_ordinary_income[y], M, f"StateStdDedUsed_{y}")
         prob += state_std_deduction_used[y] <= state_std_deduction_amount[y]
@@ -338,6 +365,10 @@ def prepare_pulp(args, S):
         prob += (bal_ira[final_year] - f_ira[final_year] - ira_to_roth[final_year]) * S.r_rate >= 0, "FinalIRANonNeg"
         prob += (bal_roth[final_year] - f_roth[final_year] + ira_to_roth[final_year]) * S.r_rate >= 0, "FinalRothNonNeg"
 
+#    prob.setObjective(objectives[0])
+#    prob += objectives[0], "Objective"
+#    prob.writeMPS("fplan.mps") # Write the LP file for debugging
+
     # --- Solve ---
     solver_options = {}
     if args.timelimit:
@@ -348,6 +379,7 @@ def prepare_pulp(args, S):
          solver_options['msg'] = 0
 
     # Choose a solver (CBC is default, bundled with PuLP)
-    solver = pulp.PULP_CBC_CMD(threads=4,timeLimit=float(args.timelimit) if args.timelimit else 60, msg=args.verbose)
+    solver = pulp.PULP_CBC_CMD(threads=8,timeLimit=float(args.timelimit) if args.timelimit else 180, msg=args.verbose)
+
 
     return prob, solver, objectives

@@ -103,6 +103,8 @@ class Data:
         if 'contributions' not in self.roth:
             self.roth['contributions'] = []
 
+        self.aca = d.get('aca', {'premium': 0, 'slcsp': 0, 'people': 1})
+
         self.parse_expenses(d)
 
     def parse_expenses(self, S):
