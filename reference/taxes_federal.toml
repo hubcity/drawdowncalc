@@ -1,4 +1,4 @@
-[Federal Single]
+[Federal_Single]
 standard_deduction = 15000
 brackets = [[0,      10],
             [11925,  12],
@@ -14,7 +14,7 @@ capital_gains_taxrates = [[0,        0],
                [533400,  20]]
 
 
-[Federal MFJ]
+[Federal_MFJ]
 standard_deduction = 30000
 brackets = [[0,      10],
             [23850,  12],
@@ -40,7 +40,7 @@ fpl = [[1,	15650],
     [7,	48650],
     [8,	54150]]
 
-[FPL AK]
+[FPL_AK]
 fpl = [[1,	19550],
     [2,	26430],
     [3,	33310],
@@ -50,7 +50,7 @@ fpl = [[1,	19550],
     [7,	60830],
     [8,	67710]]
 
-[FPL HI]
+[FPL_HI]
 fpl = [[1,	17990],
     [2,	24320],
     [3,	30650],

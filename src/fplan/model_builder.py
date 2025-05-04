@@ -271,8 +271,11 @@ def prepare_pulp(args, S):
 
         # State Taxable Income Calculation = Fed Taxable Income + Taxable Cap Gains - State Deduction
         # Original: state_taxable = fira + ira2roth + basis*fsave + cgd + state_taxed_extra
-        prob += state_ordinary_income[y] == f_ira[y] + ira_to_roth[y] + f_save[y] * taxable_part_of_f_save \
-            + cgd[y] + S.state_taxed_income[y]+ S.state_social_security_taxed[y], f"StateTaxableIncome_{y}"
+        taxed_ira = 0
+        if (S.state_taxes_retirement_income):
+            taxed_ira = f_ira[y]
+        prob += state_ordinary_income[y] == taxed_ira + ira_to_roth[y] + f_save[y] * taxable_part_of_f_save \
+            + cgd[y] + S.state_taxed_income[y] + S.state_social_security_taxed[y], f"StateTaxableIncome_{y}"
         prob += state_agi[y] == state_ordinary_income[y], f"StateAGI_{y}"
 
         # aca premium subsidy
