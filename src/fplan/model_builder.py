@@ -284,8 +284,8 @@ def prepare_pulp(args, S):
         # and better than ignoring subsidies altogether.
         if (S.retireage + y <= 65) and (S.aca['slcsp'] > 0):
             prob += min_payment[y] >= (8.5 / 100.0 * fed_agi[y]) / 12.0, f"Min_Payment_{y}"
-            prob += raw_help[y] <= (S.aca['premium'] * hc_i_mul)    # Based on your personal HC costs increase
-            prob += raw_help[y] <= (S.aca['slcsp'] * i_mul) - min_payment[y]  # Based on general inflation increase
+            prob += raw_help[y] <= (S.aca['premium'] * hc_i_mul)
+            prob += raw_help[y] <= (S.aca['slcsp'] * hc_i_mul) - min_payment[y]  
             pu.add_max_constraints(prob, help[y], raw_help[y], 0, M, f"Help_{y}")
             if S.retireage + y == 65:
                 prob += hc_payment[y] == ((S.aca['premium'] * hc_i_mul) - help[y]) * (S.birthmonth -1)
