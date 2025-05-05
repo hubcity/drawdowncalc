@@ -3,9 +3,9 @@
 import argparse
 import pulp
 
-import data_loader  # .Data
-import model_builder as mb #.prepare_pulp
-import results_processor as rp #retrieve_results, print_ascii, print_csv
+import fplan.data_loader as dl  # .Data
+import fplan.model_builder as mb #.prepare_pulp
+import fplan.results_processor as rp #retrieve_results, print_ascii, print_csv
 
 def main():
     # Instantiate the parser
@@ -30,9 +30,9 @@ def main():
     args = parser.parse_args()
 
     # -- Load Configuration File --
-    Data = data_loader.Data
+    Data = dl.Data
     S = Data()
-    S.load_file(args.conffile)
+    S.load_config(args.conffile)
 
     # Solve using PuLP
     print("Starting PuLP solver...")

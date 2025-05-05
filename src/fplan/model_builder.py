@@ -1,6 +1,6 @@
 import pulp
-import pulp_utils as pu  # add_min_constraints, add_max_constraints, add_if_then_constraint
-import data_loader as dl
+import fplan.pulp_utils as pu  # add_min_constraints, add_max_constraints, add_if_then_constraint
+import fplan.data_loader as dl
 
 # Minimize: c^T * x -> Defined using PuLP objective
 # Subject to: A_ub * x <= b_ub -> Defined using PuLP constraints
