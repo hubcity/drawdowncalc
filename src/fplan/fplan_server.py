@@ -1,6 +1,7 @@
 import sys
 import os
 from flask import Flask, request, jsonify
+from flask_cors import CORS # Import CORS
 import traceback
 
 # Add the parent directory to sys.path to allow imports from fplan
@@ -18,6 +19,7 @@ except ImportError as e:
     sys.exit(1)
 
 app = Flask(__name__)
+CORS(app) # Enable CORS for all routes and origins by default
 
 @app.route('/calculate', methods=['POST'])
 def calculate_plan():
@@ -33,10 +35,14 @@ def calculate_plan():
         data = Data()
         data.load_config(config_data) # Use the modified load_config method
 
-        # You might want to pass objective config from the request data if needed
-        # objective_cfg = config_data.get('objective', {'type': 'max_spend'})
-        fplan = FPlan(data)
-        fplan.solve()
+        # Extract arguments from the payload
+        args_data = config_data.get('arguments', {})
+        objective_cfg = args_data.get('objective', {'type': 'max_spend'}) # Default if not provided
+        pessimistic_taxes_val = args_data.get('pessimistic_taxes', False)
+        pessimistic_healthcare_val = args_data.get('pessimistic_healthcare', False)
+
+        fplan = FPlan(data, objective_config=objective_cfg)
+        fplan.solve(pessimistic_taxes=pessimistic_taxes_val, pessimistic_healthcare=pessimistic_healthcare_val)
         results = fplan.get_results() # Assuming get_results() returns serializable data
 
         return jsonify(results)

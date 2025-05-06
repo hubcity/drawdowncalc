@@ -39,6 +39,7 @@ class FPlan:
             self.objective_config = {'type': 'max_spend'}
         else:
             self.objective_config = objective_config
+        print(objective_config)
 
     def solve(self, timelimit=None, verbose=False, pessimistic_taxes=False, pessimistic_healthcare=False, relTol_steps=[0.9999, 0.999, 0.99]):
         """
@@ -67,7 +68,7 @@ class FPlan:
         for relTol in relTol_steps:
             self.prob, self.solver, self.objectives = mb.prepare_pulp(mock_args, self.data)
             print(f"Searching solution with relTol={relTol}")
-            # self.objectives = [self.objectives[0]] # If you only want the primary objective
+            self.objectives = [self.objectives[0]] # If you only want the primary objective
             self.prob.sequentialSolve(self.objectives, relativeTols=[relTol]*len(self.objectives), solver=self.solver)
             self.status = pulp.LpStatus[self.prob.status]
             if self.status == "Optimal":
