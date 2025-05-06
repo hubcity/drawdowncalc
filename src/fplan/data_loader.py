@@ -31,11 +31,24 @@ def agelist(str_val):
             raise Exception("Bad age " + str_val)
 
 class Data:
-    def load_file(self, file):
-        print(f"Loading configuration from: {file}")
-        # global vper # Not needed with PuLP variables
-        with open(file) as conffile:
-            d = tomllib.loads(conffile.read())
+    def load_config(self, config_source):
+        """
+        Loads configuration data either from a file path or a dictionary.
+
+        Args:
+            config_source: Either a string representing the file path
+                           or a dictionary containing the configuration.
+        """
+        if isinstance(config_source, str):
+            print(f"Loading configuration from file: {config_source}")
+            with open(config_source, 'rb') as conffile: # Use 'rb' for tomllib
+                d = tomllib.load(conffile)
+        elif isinstance(config_source, dict):
+            print("Loading configuration from dictionary.")
+            d = config_source
+        else:
+            raise TypeError("config_source must be a file path (str) or a dictionary (dict)")
+
         self.i_rate = 1 + d.get('inflation', 0) / 100       # inflation rate: 2.5 -> 1.025
         self.r_rate = 1 + d.get('returns', 6) / 100         # invest rate: 6 -> 1.06
 

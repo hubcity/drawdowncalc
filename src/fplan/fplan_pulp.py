@@ -1,11 +1,13 @@
 #!/usr/bin/env python3
 
 import argparse
-import pulp
+import sys # Import sys for sys.exit
 
-import data_loader  # .Data
-import model_builder as mb #.prepare_pulp
-import results_processor as rp #retrieve_results, print_ascii, print_csv
+import fplan.data_loader as dl  # .Data
+# Import the new FPlan class
+import fplan.fplan_class as fc
+
+
 
 def main():
     # Instantiate the parser
@@ -30,55 +32,42 @@ def main():
     args = parser.parse_args()
 
     # -- Load Configuration File --
-    Data = data_loader.Data
-    S = Data()
-    S.load_file(args.conffile)
+    data = dl.Data()
+    data.load_config(args.conffile) # Use load_config
 
-    # Solve using PuLP
-    print("Starting PuLP solver...")
-    # --- Prepare the problem for solving ---
-    prob, solver, objectives = None, None, None
-    for relTol in [0.9999, 0.999, 0.99]:
-        prob, solver, objectives = mb.prepare_pulp(args, S) # Prepare the problem for solving
-        print(f"Searching solution with relTol={relTol}")
-        objectives = [objectives[0]]
-        prob.sequentialSolve(objectives, relativeTols=[relTol]*len(objectives), solver=solver)
-        status = pulp.LpStatus[prob.status]
-        if status == "Optimal":
-            print(f"Found solution with relTol={relTol}")
-            break
-        else:
-            print(f"Solver status: {status} with relTol={relTol}")
-            print("Trying with a less strict tolerance...")
+    # --- Determine objective from args ---
+    objective_config = {'type': 'max_spend'} # Default
+    if args.max_assets:
+        objective_config = {'type': 'max_assets', 'value': args.max_assets}
+    elif args.min_taxes:
+        objective_config = {'type': 'min_taxes', 'value': args.min_taxes}
+
+    # --- Use the FPlan class ---
+    fplan = fc.FPlan(data, objective_config)
+
+    fplan.solve(
+        timelimit=args.timelimit,
+        verbose=args.verbose,
+        pessimistic_taxes=args.pessimistic_taxes,
+        pessimistic_healthcare=args.pessimistic_healthcare
+        # relTol_steps can be passed if you want to override the default in FPlan.solve
+    )
 
     # --- Process Results ---
-    if prob is None:
-        print("Failed to create the problem.")
-        exit(1)
-
-    final_status = pulp.LpStatus[prob.status]
-    print(f"Final solver status: {final_status}")
-
-    if prob.status not in [pulp.LpStatusOptimal, pulp.LpStatusNotSolved]: # Not Solved can occur with time limit but might have a feasible solution
-         print("Solver did not find an optimal solution.")
-         if prob.status == pulp.LpStatusInfeasible:
-            print("Problem is infeasible.")
-         elif prob.status == pulp.LpStatusUnbounded:
-            print("Problem is unbounded.")
-         return None, None, None # Indicate failure
-
-    results, S_out, prob = rp.retrieve_results(args, S, prob)
-    if results is None:
-        print("Failed to solve the problem.")
-        exit(1)
-
-
-    if args.csv:
-        rp.print_csv(results, S_out)
+    if fplan.status in ["Optimal", "Not Solved"]: # Check status from FPlan object
+        # get_results is called implicitly by the print methods if needed,
+        # but calling it explicitly first is fine too.
+        results = fplan.get_results()
+        if results:
+            if args.csv:
+                fplan.print_results_csv()
+            else:
+                fplan.print_results_ascii()
+        else:
+            print("Failed to retrieve results even though solver status was acceptable.")
     else:
-        rp.print_ascii(results, S_out)
-
-    # Validation logic would need significant rewrite for PuLP variables
+        print(f"Solver did not find an optimal/feasible solution (Status: {fplan.status}).")
+        sys.exit(1)
 
 if __name__== "__main__":
     main()

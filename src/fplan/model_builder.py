@@ -1,6 +1,6 @@
 import pulp
-import pulp_utils as pu  # add_min_constraints, add_max_constraints, add_if_then_constraint
-import data_loader as dl
+import fplan.pulp_utils as pu  # add_min_constraints, add_max_constraints, add_if_then_constraint
+import fplan.data_loader as dl
 
 # Minimize: c^T * x -> Defined using PuLP objective
 # Subject to: A_ub * x <= b_ub -> Defined using PuLP constraints
@@ -19,15 +19,16 @@ def prepare_pulp(args, S):
 
     # --- Retirement Year Variables ---
     # Withdrawals / Conversions
-    f_save = pulp.LpVariable.dicts("Withdraw_Save", years_retire, lowBound=0)
-    f_ira = pulp.LpVariable.dicts("Withdraw_IRA", years_retire, lowBound=0)
-    f_roth = pulp.LpVariable.dicts("Withdraw_Roth", years_retire, lowBound=0)
+    true_spending = pulp.LpVariable.dicts("True_Spending", years_retire, lowBound=0)
+    f_save = pulp.LpVariable.dicts("Brokerage_Withdraw", years_retire, lowBound=0)
+    f_ira = pulp.LpVariable.dicts("IRA_Withdraw", years_retire, lowBound=0)
+    f_roth = pulp.LpVariable.dicts("Roth_Withdraw", years_retire, lowBound=0)
     ira_to_roth = pulp.LpVariable.dicts("IRA_to_Roth", years_retire, lowBound=0)
 
     # Balances (Beginning of Year)
-    bal_save = pulp.LpVariable.dicts("Balance_Save", years_retire, lowBound=0)
-    bal_ira = pulp.LpVariable.dicts("Balance_IRA", years_retire, lowBound=0)
-    bal_roth = pulp.LpVariable.dicts("Balance_Roth", years_retire, lowBound=0)
+    bal_save = pulp.LpVariable.dicts("Brokerage_Balance", years_retire, lowBound=0)
+    bal_ira = pulp.LpVariable.dicts("IRA_Balance", years_retire, lowBound=0)
+    bal_roth = pulp.LpVariable.dicts("Roth_Balance", years_retire, lowBound=0)
 
     # Tax Calculation Variables
     ordinary_income = pulp.LpVariable.dicts("Ordinary_Income", years_retire, lowBound=0)
@@ -41,6 +42,7 @@ def prepare_pulp(args, S):
     # Additional holding variables to return with the answer
     fed_agi = pulp.LpVariable.dicts("Fed_AGI", years_retire, lowBound=0) # Federal AGI
     brokerage_cg = pulp.LpVariable.dicts("Brokerage_CG", years_retire, lowBound=0) # Capital Gains from Brokerage Account
+    full_social_security = pulp.LpVariable.dicts("Social_Security", years_retire, lowBound=0) # Full Social Security Amount
     taxable_social_security = pulp.LpVariable.dicts("Taxable_Social_Security", years_retire, lowBound=0) # Taxable Social Security Amount
     state_agi = pulp.LpVariable.dicts("State_AGI", years_retire, lowBound=0) # State AGI
     state_IRA_taxable = pulp.LpVariable.dicts("State_IRA_Taxable", years_retire, lowBound=0) # State Taxable IRA Amount
@@ -52,6 +54,7 @@ def prepare_pulp(args, S):
     fed_tax_early_withdrawal = pulp.LpVariable.dicts("Fed_Tax_Early_Withdrawal", years_retire, lowBound=0) # Federal Tax on Early Withdrawal
     required_RMD = pulp.LpVariable.dicts("Required_RMD", years_retire, lowBound=0) # Required Minimum Distribution Amount
     excess = pulp.LpVariable.dicts("Excess", years_retire, lowBound=0) # Excess Withdrawal
+    cash_withdraw = pulp.LpVariable.dicts("Cash_Withdraw", years_retire, lowBound=0) # Cash Withdrawals
 
     # ACA
     min_payment = pulp.LpVariable.dicts("ACA_Min_Payment", years_retire, lowBound=0) # ACA Minimum Payment
@@ -110,6 +113,9 @@ def prepare_pulp(args, S):
          total_withdrawals = f_save[y] + spend_cgd + f_ira[y] + f_roth[y] + S.income[y] + S.social_security[y] - S.expenses[y] - hc_payment[y]
          prob += total_withdrawals >= total_tax[y] + spending_floor * i_mul, f"Min_Spend_{y}"
          prob += excess[y] == total_withdrawals - (total_tax[y] + spending_floor * i_mul)
+         prob += true_spending[y] == total_withdrawals - total_tax[y] - excess[y]
+         prob += full_social_security[y] == S.social_security[y]
+         prob += cash_withdraw[y] == S.income[y]
 #         prob += excess[y] == 0
          # add_max_constraints(prob, excess[y], raw_excess, 0, M, f"Excess_{y}")
 
@@ -118,13 +124,13 @@ def prepare_pulp(args, S):
         objectives = [- 1 * pulp.lpSum(total_tax[y] * 1 / (S.i_rate ** y) for y in years_retire)]
     elif args.max_assets is not None:
         prob += spending_floor == float(args.max_assets), "Set_Spending_Floor"
-        objectives = [+ 1.0 * (bal_roth[S.numyr-1] - f_roth[S.numyr-1]) \
-                      + 1.0 * (bal_ira[S.numyr-1] - f_ira[S.numyr-1]) \
-                      + 1.0 * (bal_save[S.numyr-1] - f_save[S.numyr-1]),
+        objectives = [+ 100.0 * (bal_roth[S.numyr-1] - f_roth[S.numyr-1]) \
+                      + 100.0 * (bal_ira[S.numyr-1] - f_ira[S.numyr-1]) \
+                      + 100.0 * (bal_save[S.numyr-1] - f_save[S.numyr-1]) \
                       - 1 * pulp.lpSum(total_tax[y] * 1 / (S.i_rate ** y) for y in years_retire) \
                       - 0.1 * pulp.lpSum(smooth[y] for y in range(S.numyr-1))]
     else:  # defaults to max-spend
-        objectives = [spending_floor,
+        objectives = [100.0 * spending_floor \
                       - 1 * pulp.lpSum(total_tax[y] * 1 / (S.i_rate ** y) for y in years_retire) \
                       - 0.1 * pulp.lpSum(smooth[y] for y in range(S.numyr-1))]
 
@@ -368,10 +374,6 @@ def prepare_pulp(args, S):
         prob += (bal_ira[final_year] - f_ira[final_year] - ira_to_roth[final_year]) * S.r_rate >= 0, "FinalIRANonNeg"
         prob += (bal_roth[final_year] - f_roth[final_year] + ira_to_roth[final_year]) * S.r_rate >= 0, "FinalRothNonNeg"
 
-#    prob.setObjective(objectives[0])
-#    prob += objectives[0], "Objective"
-#    prob.writeMPS("fplan.mps") # Write the LP file for debugging
-
     # --- Solve ---
     solver_options = {}
     if args.timelimit:
@@ -382,7 +384,7 @@ def prepare_pulp(args, S):
          solver_options['msg'] = 0
 
     # Choose a solver (CBC is default, bundled with PuLP)
-    solver = pulp.PULP_CBC_CMD(threads=8,timeLimit=float(args.timelimit) if args.timelimit else 180, msg=args.verbose)
+    solver = pulp.PULP_CBC_CMD(threads=8,timeLimit=float(args.timelimit) if args.timelimit else 90, msg=args.verbose)
 
 
     return prob, solver, objectives
