@@ -124,13 +124,13 @@ def prepare_pulp(args, S):
         objectives = [- 1 * pulp.lpSum(total_tax[y] * 1 / (S.i_rate ** y) for y in years_retire)]
     elif args.max_assets is not None:
         prob += spending_floor == float(args.max_assets), "Set_Spending_Floor"
-        objectives = [+ 100.0 * (bal_roth[S.numyr-1] - f_roth[S.numyr-1]) \
-                      + 100.0 * (bal_ira[S.numyr-1] - f_ira[S.numyr-1]) \
-                      + 100.0 * (bal_save[S.numyr-1] - f_save[S.numyr-1]) \
+        objectives = [+ 5000.0 * (bal_roth[S.numyr-1] - f_roth[S.numyr-1]) \
+                      + 5000.0 * (bal_ira[S.numyr-1] - f_ira[S.numyr-1]) \
+                      + 5000.0 * (bal_save[S.numyr-1] - f_save[S.numyr-1]) \
                       - 1 * pulp.lpSum(total_tax[y] * 1 / (S.i_rate ** y) for y in years_retire) \
                       - 0.1 * pulp.lpSum(smooth[y] for y in range(S.numyr-1))]
     else:  # defaults to max-spend
-        objectives = [100.0 * spending_floor \
+        objectives = [5000.0 * spending_floor \
                       - 1 * pulp.lpSum(total_tax[y] * 1 / (S.i_rate ** y) for y in years_retire) \
                       - 0.1 * pulp.lpSum(smooth[y] for y in range(S.numyr-1))]
 

@@ -3,7 +3,8 @@ import pulp
 def retrieve_results(args, S, prob):
     status = pulp.LpStatus[prob.status]
     all_values = { v.name: v.varValue for v in prob.variables() }
-    all_names = ["Cash_Withdraw", "Brokerage_Balance", "Brokerage_Withdraw", "IRA_Balance", "IRA_Withdraw", "Roth_Balance", 
+    all_names = ["Cash_Withdraw", "Brokerage_Balance", "Brokerage_Withdraw", "IRA_Balance", "IRA_Withdraw", 
+                 "Required_RMD", "Roth_Balance", 
                  "Roth_Withdraw", "IRA_to_Roth", "CGD_Spendable", "Capital_Gains_Distribution", "Total_Capital_Gains", 
                  "Ordinary_Income", "Fed_AGI", "Fed_Tax", "State_Tax", "Total_Tax", 
                  "ACA_HC_Payment", "ACA_Help", "Social_Security", "True_Spending"]
