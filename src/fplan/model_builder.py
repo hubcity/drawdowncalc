@@ -337,7 +337,7 @@ def prepare_pulp(args, S):
             rmd_factor = dl.RMD[age - 72] # Get factor for current age
             # RMD amount = Previous Year End IRA Balance / rmd_factor
             # We will use this year's starting balance as a proxy for last year's ending balance
-            rmd_required = bal_ira[y] / rmd_factor
+            rmd_required = bal_ira[y] * (1.0 / rmd_factor)
             # Withdrawal must meet RMD: f_ira[y] >= rmd_required
             prob += f_ira[y] >= rmd_required, f"RMD_{y}"
             prob += required_RMD[y] == rmd_required, f"RMD_Amount_{y}"
