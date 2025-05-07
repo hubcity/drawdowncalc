@@ -6,6 +6,8 @@ import fplan.data_loader as dl
 # Subject to: A_ub * x <= b_ub -> Defined using PuLP constraints
 # Subject to: A_eq * x == b_eq -> Defined using PuLP constraints
 def prepare_pulp(args, S):
+    current_year = 2025
+
     # Define the problem
     prob = pulp.LpProblem("FinancialPlan", pulp.LpMaximize)
     objectives = []
@@ -326,29 +328,27 @@ def prepare_pulp(args, S):
         if (S.income_ceiling[y] < 50_000_000):
             prob += fed_agi[y] <= S.income_ceiling[y], f"IncomeCeiling_{y}"
 
-        # RMD Constraint (age >= 73)
-        if age >= 73:
+        # RMD Constraint (SECURE Act 2.0)
+        # Once you start RMDs you can't stop.  So the unlucky people born in 1959 will
+        # start their RMDs at age 73 in 2032.  In 2033 when the rules change to 75, they 
+        # will already be in the system and the new rules won't apply to them.
+        birthyear = current_year + y - age
+        if (birthyear < 1960 and age >= 73) or (age >= 75):
             rmd_factor = dl.RMD[age - 72] # Get factor for current age
             # RMD amount = Previous Year End IRA Balance / rmd_factor
-            # Previous Year End = bal_ira[y] / S.r_rate (approx BOY balance / growth)
-            # Or, more accurately: bal_ira[y-1] - f_ira[y-1] - ira_to_roth[y-1]
-            prev_year_end_ira = 0
-            if y == 0:
-                last_bal_ira = S.IRA['bal']
-                prev_year_end_ira = last_bal_ira # Approx EOY before retirement
-            else:
-                 prev_year_end_ira = bal_ira[y-1] - f_ira[y-1] - ira_to_roth[y-1]
-
-            rmd_required = prev_year_end_ira / rmd_factor
+            # We will use this year's starting balance as a proxy for last year's ending balance
+            rmd_required = bal_ira[y] / rmd_factor
             # Withdrawal must meet RMD: f_ira[y] >= rmd_required
             prob += f_ira[y] >= rmd_required, f"RMD_{y}"
             prob += required_RMD[y] == rmd_required, f"RMD_Amount_{y}"
             # prob += ira_to_roth[y] == 0, f"RMD_Convert_{y}" # No conversions if RMD is required
 
 
-        # Roth Conversion Aging (5-year rule for conversions) with an additional requirement that the account be open for 5 years for full access
-        # This is more strict than the IRS rules, but simplier to implement
+        # Roth Conversion Aging (5-year rule for all Roth additions) until age 59.5 with an additional 
+        # requirement that the account be open for 5 years for full access.
+        # I believe this is more strict than the IRS rules.  It is certainly easier to compute.
         age_account_open = min([ca for ca, _ in S.roth['contributions']], default=S.retireage)
+
         if not ((S.halfage + y >= 59) and (S.retireage + y - age_account_open >= 5)):
 #             print("Restricting Roth Conversions ", S.retireage + y)
              aged_conversions = pulp.lpSum(ira_to_roth[conv_y] for conv_y in range(max(0, y - 4))) \
