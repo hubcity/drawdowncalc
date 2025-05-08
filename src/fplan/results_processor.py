@@ -22,12 +22,12 @@ def retrieve_results(args, S, prob):
         adjust = min(all_values[f'IRA_to_Roth_{y}'], all_values[f'Roth_Withdraw_{y}']) if S.halfage+y >= 59 else 0
         adjust = adjust / i_mul
         results['retire'][y] = {
-            a: all_values.get(f'{a}_{y}', 0) / i_mul for a in all_names
+            a: round(all_values.get(f'{a}_{y}', 0) / i_mul) for a in all_names
         }
-        results['retire'][y]['IRA_to_Roth'] = results['retire'][y]['IRA_to_Roth'] - adjust
-        results['retire'][y]['Roth_Withdraw'] = results['retire'][y]['Roth_Withdraw'] - adjust
-        results['retire'][y]['IRA_Withdraw'] = results['retire'][y]['IRA_Withdraw'] + adjust
-        results['retire'][y]['CGD_Spendable'] = (results['retire'][y-1]['Capital_Gains_Distribution'] / S.i_rate) if y > 0 else 0
+        results['retire'][y]['IRA_to_Roth'] = round(results['retire'][y]['IRA_to_Roth'] - adjust)
+        results['retire'][y]['Roth_Withdraw'] = round(results['retire'][y]['Roth_Withdraw'] - adjust)
+        results['retire'][y]['IRA_Withdraw'] = round(results['retire'][y]['IRA_Withdraw'] + adjust)
+        results['retire'][y]['CGD_Spendable'] = round(results['retire'][y-1]['Capital_Gains_Distribution']) if y > 0 else 0 # Not adj by inflation, assuming most cg are collected at year end
         results['retire'][y]['tax_brackets'] = [all_values[f'Tax_Bracket_Amount_({y},_{j})'] / i_mul for j in range(len(S.taxtable))]
         results['retire'][y]['state_tax_brackets'] = [all_values[f'State_Tax_Bracket_Amount_({y},_{j})'] / i_mul for j in range(len(S.state_taxtable))]
 
