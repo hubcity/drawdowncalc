@@ -123,6 +123,16 @@ def prepare_pulp(args, S):
 #         prob += excess[y] == 0
          # add_max_constraints(prob, excess[y], raw_excess, 0, M, f"Excess_{y}")
 
+    if args.no_conversions:
+        for y in years_retire:
+            prob += ira_to_roth[y] == 0
+    elif args.no_conversions_after_socsec:
+        for y in years_retire:
+            if S.social_security[y] > 0:
+                prob += ira_to_roth[y] == 0
+
+
+
     if args.min_taxes is not None:
         prob += spending_floor == float(args.min_taxes), "Set_Spending_Floor"
         objectives = [- 1 * pulp.lpSum(inf_adj_tax[y] for y in years_retire) / len(years_retire)]
@@ -390,6 +400,7 @@ def prepare_pulp(args, S):
         prob += eop_roth >= 0, "FinalRothNonNeg"
 
         prob += eop_assets == eop_save + eop_ira + eop_roth, "EndOfPlan_Assets"
+
 
 
     # --- Solve ---

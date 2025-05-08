@@ -41,7 +41,9 @@ class FPlan:
             self.objective_config = objective_config
         print(objective_config)
 
-    def solve(self, timelimit=None, verbose=False, pessimistic_taxes=False, pessimistic_healthcare=False, relTol_steps=[0.9999, 0.999, 0.99]):
+    def solve(self, timelimit=None, verbose=False, pessimistic_taxes=False, pessimistic_healthcare=False, 
+              allow_conversions=True, no_conversions=False, no_conversions_after_socsec=False,
+              relTol_steps=[0.9999, 0.999, 0.99]):
         """
         Prepares and solves the linear programming problem.
 
@@ -58,6 +60,9 @@ class FPlan:
             timelimit=timelimit,
             pessimistic_taxes=pessimistic_taxes,
             pessimistic_healthcare=pessimistic_healthcare,
+            allow_conversions=allow_conversions,
+            no_conversions=no_conversions,
+            no_conversions_after_socsec=no_conversions_after_socsec,
             max_spend=(self.objective_config.get('type') == 'max_spend'),
             max_assets=self.objective_config.get('value') if self.objective_config.get('type') == 'max_assets' else None,
             min_taxes=self.objective_config.get('value') if self.objective_config.get('type') == 'min_taxes' else None,
