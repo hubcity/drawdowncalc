@@ -43,7 +43,7 @@ class FPlan:
 
     def solve(self, timelimit=None, verbose=False, pessimistic_taxes=False, pessimistic_healthcare=False, 
               allow_conversions=True, no_conversions=False, no_conversions_after_socsec=False,
-              relTol_steps=[0.9999, 0.999, 0.99]):
+              relTol_steps=[1.0, 0.9999, 0.999, 0.99]):
         """
         Prepares and solves the linear programming problem.
 

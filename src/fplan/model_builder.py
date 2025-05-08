@@ -114,10 +114,11 @@ def prepare_pulp(args, S):
          spend_cgd = cgd[y-1] if y > 0 else 0 # Cap gains from *last* year are spendable
          # Spending = Withdrawals + Income - Expenses - Taxes
          # We want spending_floor <= yearly spendable amount / inflation multiplier
-         total_withdrawals = f_save[y] + spend_cgd + f_ira[y] + f_roth[y] + S.income[y] + S.social_security[y] - S.expenses[y] - hc_payment[y]
-         prob += total_withdrawals >= total_tax[y] + spending_floor * i_mul, f"Min_Spend_{y}"
-         prob += excess[y] == total_withdrawals - (total_tax[y] + spending_floor * i_mul)
-         prob += true_spending[y] == total_withdrawals - total_tax[y] - excess[y]
+         total_withdrawals = f_save[y] + spend_cgd + f_ira[y] + f_roth[y] + S.income[y] + S.social_security[y]
+         total_expenses = total_tax[y] + S.expenses[y] + hc_payment[y] + spending_floor * i_mul
+         prob += total_withdrawals >= total_expenses, f"Min_Spend_{y}"
+         prob += excess[y] == total_withdrawals - total_expenses
+         prob += true_spending[y] == total_withdrawals - total_tax[y] - excess[y] - hc_payment[y] - S.expenses[y]
          prob += full_social_security[y] == S.social_security[y]
          prob += cash_withdraw[y] == S.income[y]
 #         prob += excess[y] == 0
@@ -132,15 +133,27 @@ def prepare_pulp(args, S):
                 prob += ira_to_roth[y] == 0
 
 
+    # Final Balance Non-Negative Constraints (End of last year)
+    final_year = S.numyr - 1
+    eop_assets = pulp.LpVariable("EndOfPlan_Assets", lowBound=0)
+    if final_year >=0 :
+        # For brokerage we don't have to subtract new capital gains and can add back in the ones not spent from last year
+        eop_save = (bal_save[final_year] - f_save[final_year]) * S.r_rate + cgd[final_year-1] + excess[final_year]
+        eop_ira = (bal_ira[final_year] - f_ira[final_year] - ira_to_roth[final_year]) * S.r_rate
+        eop_roth = (bal_roth[final_year] - f_roth[final_year] + ira_to_roth[final_year]) * S.r_rate        
+
+        prob += eop_save >= 0, "FinalSaveNonNeg"
+        prob += eop_ira  >= 0, "FinalIRANonNeg"
+        prob += eop_roth >= 0, "FinalRothNonNeg"
+
+        prob += eop_assets == eop_save + eop_ira + eop_roth, "EndOfPlan_Assets"
 
     if args.min_taxes is not None:
         prob += spending_floor == float(args.min_taxes), "Set_Spending_Floor"
         objectives = [- 1 * pulp.lpSum(inf_adj_tax[y] for y in years_retire) / len(years_retire)]
     elif args.max_assets is not None:
         prob += spending_floor == float(args.max_assets), "Set_Spending_Floor"
-        objectives = [+ 1.0 * (bal_roth[S.numyr-1] - f_roth[S.numyr-1]) \
-                      + 1.0 * (bal_ira[S.numyr-1] - f_ira[S.numyr-1]) \
-                      + 1.0 * (bal_save[S.numyr-1] - f_save[S.numyr-1]) \
+        objectives = [+ 1.0 * eop_assets \
                       - 1.0 * pulp.lpSum(jagged[y] for y in range(S.numyr-1)) / len(years_retire)]
     else:  # defaults to max-spend
         objectives = [+ 10.0 * spending_floor \
@@ -384,23 +397,6 @@ def prepare_pulp(args, S):
 
              total_basis = initial_contrib_basis + aged_conversions
              prob += f_roth[y] <= total_basis, f"RothBasisLimit_{y}"
-        
-
-
-    # Final Balance Non-Negative Constraints (End of last year)
-    final_year = S.numyr - 1
-    if final_year >=0 :
-        # For brokerage we don't have to subtract new capital gains and can add back in the ones not spent from last year
-        eop_save = (bal_save[final_year] - f_save[final_year]) * S.r_rate + cgd[final_year-1] + excess[final_year]
-        eop_ira = (bal_ira[final_year] - f_ira[final_year] - ira_to_roth[final_year]) * S.r_rate
-        eop_roth = (bal_roth[final_year] - f_roth[final_year] + ira_to_roth[final_year]) * S.r_rate        
-
-        prob += eop_save >= 0, "FinalSaveNonNeg"
-        prob += eop_ira  >= 0, "FinalIRANonNeg"
-        prob += eop_roth >= 0, "FinalRothNonNeg"
-
-        prob += eop_assets == eop_save + eop_ira + eop_roth, "EndOfPlan_Assets"
-
 
 
     # --- Solve ---

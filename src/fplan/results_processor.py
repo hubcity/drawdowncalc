@@ -6,7 +6,7 @@ def retrieve_results(args, S, prob):
     all_names = ["Cash_Withdraw", "Brokerage_Balance", "Brokerage_Withdraw", "IRA_Balance", "IRA_Withdraw", 
                  "Required_RMD", "Roth_Balance", 
                  "Roth_Withdraw", "IRA_to_Roth", "CGD_Spendable", "Capital_Gains_Distribution", "Total_Capital_Gains", 
-                 "Ordinary_Income", "Fed_AGI", "Fed_Tax", "State_Tax", "Total_Tax", 
+                 "Ordinary_Income", "Fed_AGI", "Fed_Tax", "State_AGI", "State_Tax", "Total_Tax", 
                  "ACA_HC_Payment", "ACA_Help", "Social_Security", "True_Spending", "Excess"]
 #    # Extract results into a dictionary or similar structure for printing
     results = {
@@ -31,6 +31,7 @@ def retrieve_results(args, S, prob):
         results['retire'][y]['tax_brackets'] = [all_values[f'Tax_Bracket_Amount_({y},_{j})'] / i_mul for j in range(len(S.taxtable))]
         results['retire'][y]['state_tax_brackets'] = [all_values[f'State_Tax_Bracket_Amount_({y},_{j})'] / i_mul for j in range(len(S.state_taxtable))]
 
+#    print(all_values)
     return results, S, prob # Pass S and prob back for potential inspection
 
 
