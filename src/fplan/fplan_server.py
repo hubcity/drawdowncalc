@@ -40,9 +40,16 @@ def calculate_plan():
         objective_cfg = args_data.get('objective', {'type': 'max_spend'}) # Default if not provided
         pessimistic_taxes_val = args_data.get('pessimistic_taxes', False)
         pessimistic_healthcare_val = args_data.get('pessimistic_healthcare', False)
+        allow_conversions_val = args_data.get('allow_conversions', True)
+        no_conversions_val = args_data.get('no_conversions', False)
+        no_conversions_after_socsec_val = args_data.get('no_conversions_after_socsec', False)
 
         fplan = FPlan(data, objective_config=objective_cfg)
-        fplan.solve(pessimistic_taxes=pessimistic_taxes_val, pessimistic_healthcare=pessimistic_healthcare_val)
+        fplan.solve(pessimistic_taxes=pessimistic_taxes_val, 
+                    pessimistic_healthcare=pessimistic_healthcare_val,
+                    allow_conversions=allow_conversions_val,
+                    no_conversions=no_conversions_val,
+                    no_conversions_after_socsec=no_conversions_after_socsec_val)
         results = fplan.get_results() # Assuming get_results() returns serializable data
 
         return jsonify(results)
