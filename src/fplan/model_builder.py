@@ -18,6 +18,7 @@ def prepare_pulp(args, S):
 
     # --- Single Variables ---
     spending_floor = pulp.LpVariable("SpendingFloor", lowBound=0)
+    eop_assets = pulp.LpVariable("EndOfPlan_Assets", lowBound=0)
 
     # --- Retirement Year Variables ---
     # Withdrawals / Conversions
@@ -98,11 +99,12 @@ def prepare_pulp(args, S):
          nii_vars[y, 'over'] = pulp.LpVariable(f"NII_{y}_OverBracket", lowBound=0)
          nii_vars[y, 'cg_portion'] = pulp.LpVariable(f"NII_{y}_CGPortion", lowBound=0) # Amount subject to NII
 
-    smooth = pulp.LpVariable.dicts("Smooth", range(S.numyr-1), lowBound=0)
-    inf_adj_tax = [total_tax[y] * 1 / (S.i_rate ** y) for y in years_retire]
+    jagged = pulp.LpVariable.dicts("Jagged", range(S.numyr-1), lowBound=0)
+
+    inf_adj_tax = [(total_tax[y]+hc_payment[y]) * 1 / (S.i_rate ** y) for y in years_retire]
     for y in range(S.numyr-2):
-        prob += smooth[y] >= (inf_adj_tax[y+2] - inf_adj_tax[y+1]) - (inf_adj_tax[y+1] - inf_adj_tax[y]), f"Smooth_Tax_Jump_{y}"
-        prob += smooth[y] >= (inf_adj_tax[y+1] - inf_adj_tax[y]) - (inf_adj_tax[y+2] - inf_adj_tax[y+1]), f"Smooth_Tax_Jump_{y}_2"
+        prob += jagged[y] >= (inf_adj_tax[y+2] - inf_adj_tax[y+1]) - (inf_adj_tax[y+1] - inf_adj_tax[y]), f"Jagged_Tax_Jump_{y}"
+        prob += jagged[y] >= (inf_adj_tax[y+1] - inf_adj_tax[y]) - (inf_adj_tax[y+2] - inf_adj_tax[y+1]), f"Jagged_Tax_Jump_{y}_2"
     # Should we make a special attempt to smooth the first year?
     # prob += smooth[S.numyr-2] >= (inf_adj_tax[1] - inf_adj_tax[0]) - (inf_adj_tax[0] - 0), f"Smooth_Tax_Jump_{S.numyr-2}"
     # prob += smooth[S.numyr-2] >= (inf_adj_tax[0] - 0) - (inf_adj_tax[1] - inf_adj_tax[0]), f"Smooth_Tax_Jump_{S.numyr-2}_2"
@@ -123,18 +125,16 @@ def prepare_pulp(args, S):
 
     if args.min_taxes is not None:
         prob += spending_floor == float(args.min_taxes), "Set_Spending_Floor"
-        objectives = [- 1 * pulp.lpSum(total_tax[y] * 1 / (S.i_rate ** y) for y in years_retire)]
+        objectives = [- 1 * pulp.lpSum(inf_adj_tax[y] for y in years_retire) / len(years_retire)]
     elif args.max_assets is not None:
         prob += spending_floor == float(args.max_assets), "Set_Spending_Floor"
-        objectives = [+ 5000.0 * (bal_roth[S.numyr-1] - f_roth[S.numyr-1]) \
-                      + 5000.0 * (bal_ira[S.numyr-1] - f_ira[S.numyr-1]) \
-                      + 5000.0 * (bal_save[S.numyr-1] - f_save[S.numyr-1]) \
-                      - 1 * pulp.lpSum(total_tax[y] * 1 / (S.i_rate ** y) for y in years_retire) \
-                      - 0.1 * pulp.lpSum(smooth[y] for y in range(S.numyr-1))]
+        objectives = [+ 1.0 * (bal_roth[S.numyr-1] - f_roth[S.numyr-1]) \
+                      + 1.0 * (bal_ira[S.numyr-1] - f_ira[S.numyr-1]) \
+                      + 1.0 * (bal_save[S.numyr-1] - f_save[S.numyr-1]) \
+                      - 1.0 * pulp.lpSum(jagged[y] for y in range(S.numyr-1)) / len(years_retire)]
     else:  # defaults to max-spend
-        objectives = [5000.0 * spending_floor \
-                      - 1 * pulp.lpSum(total_tax[y] * 1 / (S.i_rate ** y) for y in years_retire) \
-                      - 0.1 * pulp.lpSum(smooth[y] for y in range(S.numyr-1))]
+        objectives = [+ 10.0 * spending_floor \
+                      - 1.0 * pulp.lpSum(jagged[y] for y in range(S.numyr-1)) / len(years_retire)]
 
     # --- Constraints ---
 
@@ -146,7 +146,7 @@ def prepare_pulp(args, S):
         age = y + S.retireage
 
         # Calculate basis_percent (as used in state tax, NII, CG calcs)
-        if S.aftertax['basis'] > 0:
+        if S.aftertax['bal'] > 0:
             # This is the least wrong way I could think of to estimate the basis percent
             basis_percent = (S.aftertax['basis'] /
                          (S.aftertax['bal'] *
@@ -287,14 +287,26 @@ def prepare_pulp(args, S):
         prob += state_agi[y] == state_ordinary_income[y], f"StateAGI_{y}"
 
         # aca premium subsidy
-        # This simple calculation (uses 8.5% for everyone) underestimates most ACA 
-        # subsidies, especially for those with low AGI.  It is reasonably fast to calculate 
-        # and better than ignoring subsidies altogether.
+        # Implemented as discrete steps from 200% to 400%.  Currently using the 2025 rules.
+        # This is reasonably fast to calculate and better than ignoring subsidies altogether.
         if (S.retireage + y <= 65) and (S.aca['slcsp'] > 0):
-            prob += min_payment[y] >= (8.5 / 100.0 * fed_agi[y]) / 12.0, f"Min_Payment_{y}"
-            prob += raw_help[y] <= (S.aca['premium'] * hc_i_mul)
-            prob += raw_help[y] <= (S.aca['slcsp'] * hc_i_mul) - min_payment[y]  
+            pu.add_if_then_constraint(prob, fed_agi[y] - 3.5 * S.fpl_amount * i_mul, (0.085 * fed_agi[y])/12.0 - min_payment[y], M, f"FPL_400_{y}")
+            pu.add_if_then_constraint(prob, fed_agi[y] - 3.0 * S.fpl_amount * i_mul, (0.0725 * fed_agi[y])/12.0 - min_payment[y], M, f"FPL_350_{y}")
+            pu.add_if_then_constraint(prob, fed_agi[y] - 2.75 * S.fpl_amount * i_mul, (0.06 * fed_agi[y])/12.0 - min_payment[y], M, f"FPL_300_{y}")
+            pu.add_if_then_constraint(prob, fed_agi[y] - 2.5 * S.fpl_amount * i_mul, (0.05 * fed_agi[y])/12.0 - min_payment[y], M, f"FPL_275_{y}")
+            pu.add_if_then_constraint(prob, fed_agi[y] - 2.25 * S.fpl_amount * i_mul, (0.04 * fed_agi[y])/12.0 - min_payment[y], M, f"FPL_250_{y}")
+            pu.add_if_then_constraint(prob, fed_agi[y] - 2.0 * S.fpl_amount * i_mul, (0.03 * fed_agi[y])/12.0 - min_payment[y], M, f"FPL_225_{y}")
+            prob += min_payment[y] >= (0.02 * fed_agi[y])/12.0, f"FPL_200_{y}"
+            prob += raw_help[y] <= (S.aca['premium'] * i_mul)
+            prob += raw_help[y] <= (S.aca['slcsp'] * i_mul) - min_payment[y]
             pu.add_max_constraints(prob, help[y], raw_help[y], 0, M, f"Help_{y}")
+#            if y > 0 and S.halfage + y != 59:
+#                prob += fed_agi[y] <= fed_agi[y-1]
+
+#            prob += min_payment[y] >= (8.5 / 100.0 * fed_agi[y]) / 12.0, f"Min_Payment_{y}"
+#            prob += raw_help[y] <= (S.aca['premium'] * hc_i_mul)
+#            prob += raw_help[y] <= (S.aca['slcsp'] * hc_i_mul) - min_payment[y]  
+#            pu.add_max_constraints(prob, help[y], raw_help[y], 0, M, f"Help_{y}")
             if S.retireage + y == 65:
                 prob += hc_payment[y] == ((S.aca['premium'] * hc_i_mul) - help[y]) * (S.birthmonth -1)
             else:
@@ -368,11 +380,17 @@ def prepare_pulp(args, S):
     # Final Balance Non-Negative Constraints (End of last year)
     final_year = S.numyr - 1
     if final_year >=0 :
-        # EOY = (BOY - Withdrawals + Conversions) * Growth + CGD
+        # For brokerage we don't have to subtract new capital gains and can add back in the ones not spent from last year
+        eop_save = (bal_save[final_year] - f_save[final_year]) * S.r_rate + cgd[final_year-1] + excess[final_year]
+        eop_ira = (bal_ira[final_year] - f_ira[final_year] - ira_to_roth[final_year]) * S.r_rate
+        eop_roth = (bal_roth[final_year] - f_roth[final_year] + ira_to_roth[final_year]) * S.r_rate        
 
-        prob += (bal_save[final_year] - f_save[final_year]) * S.r_rate >= 0, "FinalSaveNonNeg"
-        prob += (bal_ira[final_year] - f_ira[final_year] - ira_to_roth[final_year]) * S.r_rate >= 0, "FinalIRANonNeg"
-        prob += (bal_roth[final_year] - f_roth[final_year] + ira_to_roth[final_year]) * S.r_rate >= 0, "FinalRothNonNeg"
+        prob += eop_save >= 0, "FinalSaveNonNeg"
+        prob += eop_ira  >= 0, "FinalIRANonNeg"
+        prob += eop_roth >= 0, "FinalRothNonNeg"
+
+        prob += eop_assets == eop_save + eop_ira + eop_roth, "EndOfPlan_Assets"
+
 
     # --- Solve ---
     solver_options = {}
@@ -384,7 +402,7 @@ def prepare_pulp(args, S):
          solver_options['msg'] = 0
 
     # Choose a solver (CBC is default, bundled with PuLP)
-    solver = pulp.PULP_CBC_CMD(threads=8,timeLimit=float(args.timelimit) if args.timelimit else 90, msg=args.verbose)
+    solver = pulp.PULP_CBC_CMD(presolve=False, threads=8,timeLimit=float(args.timelimit) if args.timelimit else 90, msg=args.verbose)
 
 
     return prob, solver, objectives

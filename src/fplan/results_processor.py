@@ -7,10 +7,11 @@ def retrieve_results(args, S, prob):
                  "Required_RMD", "Roth_Balance", 
                  "Roth_Withdraw", "IRA_to_Roth", "CGD_Spendable", "Capital_Gains_Distribution", "Total_Capital_Gains", 
                  "Ordinary_Income", "Fed_AGI", "Fed_Tax", "State_Tax", "Total_Tax", 
-                 "ACA_HC_Payment", "ACA_Help", "Social_Security", "True_Spending"]
+                 "ACA_HC_Payment", "ACA_Help", "Social_Security", "True_Spending", "Excess"]
 #    # Extract results into a dictionary or similar structure for printing
     results = {
         'spending_floor': all_values['SpendingFloor'],
+        'endofplan_assets': all_values['EndOfPlan_Assets'] / (S.i_rate ** S.numyr),
         'retire': {},
         'status': status
     }
@@ -41,11 +42,13 @@ def print_ascii(results, S):
     print(f"Solver Status: {results['status']}")
     spending = results['spending_floor'] if results['spending_floor'] is not None else 0
     print(f"Yearly spending floor (today's dollars) <= {spending:.0f}")
+    eop = results['endofplan_assets'] if results['endofplan_assets'] is not None else 0
+    print(f"End-of-plan Assets (today's dollars) <= {eop:.0f}")   
     print()
 
     columns = ["Brokerage_Balance", "Brokerage_Withdraw", "IRA_Balance", "IRA_Withdraw", "Roth_Balance", 
                 "Roth_Withdraw", "IRA_to_Roth", "Capital_Gains_Distribution", "Fed_AGI", "Total_Tax", 
-                "ACA_HC_Payment", "Social_Security", "True_Spending"]
+                "ACA_HC_Payment", "Social_Security", "True_Spending", "Excess"]
 
     print((" age" + " %6.6s" * len(columns)) % # Adjusted column count
           tuple(columns)) # b=balance, w=withdrawal/conversion
