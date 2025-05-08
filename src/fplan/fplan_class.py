@@ -68,7 +68,7 @@ class FPlan:
         for relTol in relTol_steps:
             self.prob, self.solver, self.objectives = mb.prepare_pulp(mock_args, self.data)
             print(f"Searching solution with relTol={relTol}")
-            self.objectives = [self.objectives[0]] # If you only want the primary objective
+#            self.objectives = [self.objectives[0]] # If you only want the primary objective
             self.prob.sequentialSolve(self.objectives, relativeTols=[relTol]*len(self.objectives), solver=self.solver)
             self.status = pulp.LpStatus[self.prob.status]
             if self.status == "Optimal":

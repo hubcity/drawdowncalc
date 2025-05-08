@@ -80,6 +80,7 @@ class Data:
         self.stded = default_stded
         self.state_stded = default_stded
         self.nii = 250000
+        self.fpl_amount = 0 # Initialize FPL amount
 
         state_abbr = None
         if 'taxes' in d:
@@ -93,9 +94,13 @@ class Data:
             self.nii = d['taxes'].get('nii', 250000)
             state_abbr = d['taxes'].get('state', None)
 
-            # --- Load Federal Tax Data ---
+        # --- Load Federal Tax Data (Moved outside 'if taxes in d' to always load FPL if ACA info present) ---
+        # This ensures FPL is loaded even if the [taxes] section is minimal or absent,
+        # as long as ACA info is provided.
+        federal_tax_file_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), 'reference', 'taxes_federal.toml')
+        all_federal_data = None # Initialize to ensure it's defined
+        try:
             filing_status = d['taxes'].get('filing_status', 'MFJ') # Default to MFJ if not specified
-            federal_tax_file_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), 'reference', 'taxes_federal.toml')
             print(f"Attempting to load federal tax data from: {federal_tax_file_path}")
             federal_section_key = f"Federal_{filing_status}"
 
@@ -115,32 +120,58 @@ class Data:
                 print(f"Warning: Federal tax file not found at {federal_tax_file_path}. Using default MFJ values.")
             except Exception as e:
                 print(f"Error loading federal tax data: {e}. Using default MFJ values.")
-            # --- State Tax Loading Logic ---
-            if state_abbr:
-                state_abbr = state_abbr.upper()
-                # Assume reference/taxes_state.toml is relative to the project root or accessible path
-                # A more robust approach might involve package resources or a fixed config path
-                state_tax_file_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), 'reference', 'taxes_state.toml')
-                print(f"Attempting to load state tax data from: {state_tax_file_path}")
-                try:
-                    with open(state_tax_file_path, 'rb') as f: # Use 'rb' for tomllib
-                        all_state_data = tomllib.load(f)
-                    heading = f'{state_abbr}_{filing_status}'
-                    state_data = all_state_data.get(heading)
-                    if state_data:
-                        print(f"Found tax data for state: {heading}")
-                        tmp_state_taxrates = state_data.get('brackets', default_state_taxrates)
-                        self.state_stded = state_data.get('standard_deduction', 0) # Default to 0 if not specified for the state
-                        self.state_taxes_ss = state_data.get('tax_social_security', True)
-                        self.state_taxes_retirement_income = state_data.get('tax_retirement_income', True)
-                    else:
-                        print(f"Warning: State abbreviation '{heading}' not found in {state_tax_file_path}. Defaulting to no state tax.")
-                        tmp_state_taxrates = default_state_taxrates
-                        self.state_stded = 0
-                except FileNotFoundError:
-                    print(f"Warning: State tax file not found at {state_tax_file_path}. Defaulting to no state tax.")
+        except Exception as e: # Catch errors if 'taxes' or 'filing_status' is missing
+            print(f"Could not determine filing status for federal tax load: {e}. Using default MFJ values for rates/stded/nii.")
+            # Ensure all_federal_data is loaded if only filing_status was the issue, for FPL.
+            if not all_federal_data and os.path.exists(federal_tax_file_path):
+                 with open(federal_tax_file_path, 'rb') as f:
+                    all_federal_data = tomllib.load(f)
+
+        # --- State Tax Loading Logic ---
+        if state_abbr: # state_abbr is defined if 'taxes' and 'state' are in config
+            state_abbr = state_abbr.upper()
+            filing_status_for_state = d.get('taxes', {}).get('filing_status', 'MFJ') # Get filing_status again for state context
+            state_tax_file_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), 'reference', 'taxes_state.toml')
+            print(f"Attempting to load state tax data from: {state_tax_file_path}")
+            try:
+                with open(state_tax_file_path, 'rb') as f: # Use 'rb' for tomllib
+                    all_state_data_toml = tomllib.load(f) # Renamed to avoid conflict
+                heading = f'{state_abbr}_{filing_status_for_state}'
+                state_data = all_state_data_toml.get(heading)
+                if state_data:
+                    print(f"Found tax data for state: {heading}")
+                    tmp_state_taxrates = state_data.get('brackets', default_state_taxrates)
+                    self.state_stded = state_data.get('standard_deduction', 0)
+                    self.state_taxes_ss = state_data.get('tax_social_security', True)
+                    self.state_taxes_retirement_income = state_data.get('tax_retirement_income', True)
+                else:
+                    print(f"Warning: State abbreviation '{heading}' not found in {state_tax_file_path}. Defaulting to no state tax.")
                     tmp_state_taxrates = default_state_taxrates
                     self.state_stded = 0
+            except FileNotFoundError:
+                print(f"Warning: State tax file not found at {state_tax_file_path}. Defaulting to no state tax.")
+                tmp_state_taxrates = default_state_taxrates
+                self.state_stded = 0
+
+        # --- FPL Lookup ---
+        self.aca = d.get('aca', {'premium': 0, 'slcsp': 0, 'covered': 1})
+        aca_covered_people = self.aca.get('covered', 1)
+        # Use state_abbr from taxes section if available, otherwise default or handle error
+        fpl_state_key_suffix = ""
+        if state_abbr == "AK":
+            fpl_state_key_suffix = "_AK"
+        elif state_abbr == "HI":
+            fpl_state_key_suffix = "_HI"
+
+        fpl_section_key = f"FPL{fpl_state_key_suffix}"
+        
+        if all_federal_data and fpl_section_key in all_federal_data:
+            fpl_table = dict(all_federal_data[fpl_section_key].get('fpl', []))
+            self.fpl_amount = fpl_table.get(aca_covered_people, fpl_table.get(min(fpl_table.keys(), key=lambda k: abs(k-aca_covered_people)), 0)) # Get for covered, or closest, or 0
+            print(f"FPL for {aca_covered_people} people in {state_abbr or 'N/A'} ({fpl_section_key}): {self.fpl_amount}")
+        else:
+            print(f"Warning: FPL section '{fpl_section_key}' not found in federal tax data or federal data not loaded. FPL set to 0.")
+            self.fpl_amount = 0
 
         self.taxrates = [[x,y/100.0] for (x,y) in tmp_taxrates]
         cutoffs = [x[0] for x in self.taxrates][1:] + [float('inf')]
@@ -168,8 +199,6 @@ class Data:
         self.roth = d.get('roth', {'bal': 0})
         if 'contributions' not in self.roth:
             self.roth['contributions'] = []
-
-        self.aca = d.get('aca', {'premium': 0, 'slcsp': 0,})
 
         print(self.taxtable)
         print(self.state_taxtable)
