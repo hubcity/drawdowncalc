@@ -27,7 +27,7 @@ def retrieve_results(args, S, prob):
         results['retire'][y]['IRA_to_Roth'] = round(results['retire'][y]['IRA_to_Roth'] - adjust)
         results['retire'][y]['Roth_Withdraw'] = round(results['retire'][y]['Roth_Withdraw'] - adjust)
         results['retire'][y]['IRA_Withdraw'] = round(results['retire'][y]['IRA_Withdraw'] + adjust)
-        results['retire'][y]['CGD_Spendable'] = round(results['retire'][y-1]['Capital_Gains_Distribution']) if y > 0 else 0 # Not adj by inflation, assuming most cg are collected at year end
+        results['retire'][y]['CGD_Spendable'] = round(results['retire'][y-1]['Capital_Gains_Distribution'] / i_mul) if y > 0 else 0
         results['retire'][y]['tax_brackets'] = [all_values[f'Tax_Bracket_Amount_({y},_{j})'] / i_mul for j in range(len(S.taxtable))]
         results['retire'][y]['state_tax_brackets'] = [all_values[f'State_Tax_Bracket_Amount_({y},_{j})'] / i_mul for j in range(len(S.state_taxtable))]
 
