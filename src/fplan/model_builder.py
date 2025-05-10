@@ -104,7 +104,7 @@ def prepare_pulp(args, S):
     inf_adj_tax = [(total_tax[y]+hc_payment[y]) * 1 / (S.i_rate ** y) for y in years_retire]
     for y in range(S.numyr-2):
         prob += jagged[y] >= (inf_adj_tax[y+2] - inf_adj_tax[y+1]) - (inf_adj_tax[y+1] - inf_adj_tax[y]), f"Jagged_Tax_Jump_{y}"
-        prob += jagged[y] >= (inf_adj_tax[y+1] - inf_adj_tax[y]) - (inf_adj_tax[y+2] - inf_adj_tax[y+1]), f"Jagged_Tax_Jump_{y}_2"
+        # prob += jagged[y] >= (inf_adj_tax[y+1] - inf_adj_tax[y]) - (inf_adj_tax[y+2] - inf_adj_tax[y+1]), f"Jagged_Tax_Jump_{y}_2"
     # Should we make a special attempt to smooth the first year?
     # prob += smooth[S.numyr-2] >= (inf_adj_tax[1] - inf_adj_tax[0]) - (inf_adj_tax[0] - 0), f"Smooth_Tax_Jump_{S.numyr-2}"
     # prob += smooth[S.numyr-2] >= (inf_adj_tax[0] - 0) - (inf_adj_tax[1] - inf_adj_tax[0]), f"Smooth_Tax_Jump_{S.numyr-2}_2"
@@ -154,10 +154,10 @@ def prepare_pulp(args, S):
     elif args.max_assets is not None:
         prob += spending_floor == float(args.max_assets), "Set_Spending_Floor"
         objectives = [+ 1.0 * eop_assets \
-                      - 1.0 * pulp.lpSum(jagged[y] for y in range(S.numyr-1)) / len(years_retire)]
+                      - 0.0 * pulp.lpSum(jagged[y] for y in range(S.numyr-1)) / len(years_retire)]
     else:  # defaults to max-spend
         objectives = [+ 10.0 * spending_floor \
-                      - 1.0 * pulp.lpSum(jagged[y] for y in range(S.numyr-1)) / len(years_retire)]
+                      - 0.0 * pulp.lpSum(jagged[y] for y in range(S.numyr-1)) / len(years_retire)]
 
     # --- Constraints ---
 
