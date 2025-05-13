@@ -57,7 +57,7 @@ class Data:
         self.birthmonth = d.get('birthmonth', 1)
         if (self.birthmonth >= 7):
             self.halfage = self.startage - 1.0
-        self.endage = d.get('endage', max(96, self.startage+5))
+        self.endage = d.get('endage', max(96, self.startage+5)) + 1
 
         # 2023 tax table (could predict it moves with inflation?)
         # married joint at the moment, can override in config file
@@ -110,6 +110,7 @@ class Data:
                 federal_data = all_federal_data.get(federal_section_key)
                 if federal_data:
                     print(f"Found federal tax data for filing status: {filing_status}")
+                    self.status = filing_status
                     tmp_taxrates = federal_data.get('brackets', tmp_taxrates)
                     self.stded = federal_data.get('standard_deduction', self.stded)
                     self.nii = federal_data.get('net_investment_income_threshold', self.nii)
@@ -140,6 +141,7 @@ class Data:
                 state_data = all_state_data_toml.get(heading)
                 if state_data:
                     print(f"Found tax data for state: {heading}")
+                    self.state_status = heading
                     tmp_state_taxrates = state_data.get('brackets', default_state_taxrates)
                     self.state_stded = state_data.get('standard_deduction', 0)
                     self.state_taxes_ss = state_data.get('tax_social_security', True)
@@ -174,13 +176,13 @@ class Data:
             self.fpl_amount = 0
 
         self.taxrates = [[x,y/100.0] for (x,y) in tmp_taxrates]
-        cutoffs = [x[0] for x in self.taxrates][1:] + [float('inf')]
+        cutoffs = [x[0] for x in self.taxrates][1:] + [1e8]
         self.taxtable = list(map(lambda x, y: [x[1], x[0], y], self.taxrates, cutoffs))
         self.state_taxrates = [[x,y/100.0] for (x,y) in tmp_state_taxrates]
-        cutoffs = [x[0] for x in self.state_taxrates][1:] + [float('inf')]
+        cutoffs = [x[0] for x in self.state_taxrates][1:] + [1e8]
         self.state_taxtable = list(map(lambda x, y: [x[1], x[0], y], self.state_taxrates, cutoffs))
         self.cg_taxrates = [[x,y/100.0] for (x,y) in tmp_cg_taxrates]
-        cutoffs = [x[0] for x in self.cg_taxrates][1:] + [float('inf')]
+        cutoffs = [x[0] for x in self.cg_taxrates][1:] + [1e8]
         self.cg_taxtable = list(map(lambda x, y: [x[1], x[0], y], self.cg_taxrates, cutoffs))
 
         # vper calculations not needed for PuLP variable setup

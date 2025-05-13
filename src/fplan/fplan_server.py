@@ -51,7 +51,7 @@ def calculate_plan():
                     no_conversions=no_conversions_val,
                     no_conversions_after_socsec=no_conversions_after_socsec_val)
         results = fplan.get_results() # Assuming get_results() returns serializable data
-
+#        print(jsonify(results))
         return jsonify(results)
     except Exception as e:
         traceback.print_exc() # Print detailed error to server console
