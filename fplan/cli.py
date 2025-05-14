@@ -3,10 +3,8 @@
 import argparse
 import sys # Import sys for sys.exit
 
-import fplan.core.data_loader as dl  # .Data
-# Import the new FPlan class
-import fplan.fplan as fc
-
+from fplan.core.data_loader import Data
+from fplan.fplan import FPlan
 
 
 def main():
@@ -41,7 +39,7 @@ def main():
     args = parser.parse_args()
 
     # -- Load Configuration File --
-    data = dl.Data()
+    data = Data()
     data.load_config(args.conffile) # Use load_config
 
     # --- Determine primary objective from args ---
@@ -53,7 +51,7 @@ def main():
 
     # --- Use the FPlan class ---
     # The FPlan class will need to be updated to handle these new conversion args
-    fplan = fc.FPlan(data, objective_config)
+    fplan = FPlan(data, objective_config)
 
     fplan.solve(
         timelimit=args.timelimit,

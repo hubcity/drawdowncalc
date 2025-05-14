@@ -1,14 +1,9 @@
 import pulp
 import argparse # We'll use Namespace to mimic args
 
-try:
-    # Attempt relative imports for use within the package
-    from .core import model_builder as mb
-    from .core import results_processor as rp
-except ImportError:
-    # Fallback for running script directly or other import issues
-    import fplan.core.model_builder as mb
-    import fplan.core.results_processor as rp
+# Attempt relative imports for use within the package
+from .core.model_builder import prepare_pulp
+from .core.results_processor import retrieve_results, print_ascii, print_csv
 
 class FPlan:
     """
@@ -71,7 +66,7 @@ class FPlan:
 
         print("Starting PuLP solver...")
         for relTol in relTol_steps:
-            self.prob, self.solver, self.objectives = mb.prepare_pulp(mock_args, self.data)
+            self.prob, self.solver, self.objectives = prepare_pulp(mock_args, self.data)
             print(f"Searching solution with relTol={relTol}")
 #            self.objectives = [self.objectives[0]] # If you only want the primary objective
             self.prob.sequentialSolve(self.objectives, relativeTols=[relTol]*len(self.objectives), solver=self.solver)
@@ -109,7 +104,7 @@ class FPlan:
             # Add any args needed by retrieve_results, e.g., csv=False
         )
 
-        self.results, self.S_out, self.prob = rp.retrieve_results(mock_args_results, self.data, self.prob)
+        self.results, self.S_out, self.prob = retrieve_results(mock_args_results, self.data, self.prob)
 
         if self.results is None:
             print("Failed to retrieve results from the solver.")
@@ -121,13 +116,13 @@ class FPlan:
     def print_results_ascii(self):
         """Prints the results in ASCII table format."""
         if self.results and self.S_out:
-            rp.print_ascii(self.results, self.S_out)
+            print_ascii(self.results, self.S_out)
         else:
             print("No results available to print.")
 
     def print_results_csv(self):
         """Prints the results in CSV format."""
         if self.results and self.S_out:
-            rp.print_csv(self.results, self.S_out)
+            print_csv(self.results, self.S_out)
         else:
             print("No results available to print.")

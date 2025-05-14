@@ -1,22 +1,9 @@
-import sys
-import os
 from flask import Flask, request, jsonify
 from flask_cors import CORS # Import CORS
 import traceback
 
-# Add the parent directory to sys.path to allow imports from fplan
-current_dir = os.path.dirname(os.path.abspath(__file__))
-parent_dir = os.path.dirname(current_dir)
-if parent_dir not in sys.path:
-    sys.path.append(parent_dir)
-
-try:
-    from fplan.core.data_loader import Data
-    from fplan.fplan import FPlan
-except ImportError as e:
-    print(f"Error importing fplan modules: {e}")
-    print(f"Current sys.path: {sys.path}")
-    sys.exit(1)
+from fplan.core.data_loader import Data
+from fplan.fplan import FPlan
 
 app = Flask(__name__)
 CORS(app) # Enable CORS for all routes and origins by default
