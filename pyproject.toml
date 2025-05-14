@@ -1,7 +1,6 @@
 [build-system]
 requires = ["setuptools>=61.0"]
 build-backend = "setuptools.build_meta"
-backend-path = ["."] # Indicates setuptools can find its build files in the current dir
 
 [project]
 name = "drawdowncalc"

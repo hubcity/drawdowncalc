@@ -3,3 +3,4 @@ scott.toml
 dist
 **.pyc
 .venv
+drawdowncalc.egg-info

@@ -44,5 +44,9 @@ def calculate_plan():
         traceback.print_exc() # Print detailed error to server console
         return jsonify({"error": f"Calculation failed: {str(e)}"}), 500
 
+def main():
+    """Entry point for running the Flask server."""
+    app.run(debug=True, host='0.0.0.0', port=5001) # Example run command, adjust as needed
+
 if __name__ == '__main__':
-    app.run(debug=True, host='0.0.0.0', port=5001) # Run on port 5001, accessible externally
+    main()
