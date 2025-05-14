@@ -3,8 +3,8 @@
 import argparse
 import sys # Import sys for sys.exit
 
-from fplan.core.data_loader import Data
-from fplan.fplan import FPlan
+from ddcalc.core.data_loader import Data
+from ddcalc.ddcalc import DDCalc
 
 
 def main():
@@ -49,40 +49,40 @@ def main():
     elif args.min_taxes:
         objective_config = {'type': 'min_taxes', 'value': args.min_taxes}
 
-    # --- Use the FPlan class ---
-    # The FPlan class will need to be updated to handle these new conversion args
-    fplan = FPlan(data, objective_config)
+    # --- Use the DDCalc class ---
+    # The DDCalc class will need to be updated to handle these new conversion args
+    ddcalc = DDCalc(data, objective_config)
 
-    fplan.solve(
+    ddcalc.solve(
         timelimit=args.timelimit,
         verbose=args.verbose,
         pessimistic_taxes=args.pessimistic_taxes,
         pessimistic_healthcare=args.pessimistic_healthcare,
         # Pass the new conversion flags to the solve method
-        # The FPlan.solve() method and subsequently model_builder.prepare_pulp()
+        # The ddcalc.solve() method and subsequently model_builder.prepare_pulp()
         # will need to be updated to accept and use these.
         allow_conversions=args.allow_conversions, # This will be True if explicitly set, or False if another option in the group is set or none are.
                                                   # We might need to adjust logic if --allow-conversions is the default.
         no_conversions=args.no_conversions,
         no_conversions_after_socsec=args.no_conversions_after_socsec
-        # relTol_steps can be passed if you want to override the default in FPlan.solve
+        # relTol_steps can be passed if you want to override the default in ddcalc.solve
     )
 
 
     # --- Process Results ---
-    if fplan.status in ["Optimal", "Not Solved"]: # Check status from FPlan object
+    if ddcalc.status in ["Optimal", "Not Solved"]: # Check status from ddcalc object
         # get_results is called implicitly by the print methods if needed,
         # but calling it explicitly first is fine too.
-        results = fplan.get_results()
+        results = ddcalc.get_results()
         if results:
             if args.csv:
-                fplan.print_results_csv()
+                ddcalc.print_results_csv()
             else:
-                fplan.print_results_ascii()
+                ddcalc.print_results_ascii()
         else:
             print("Failed to retrieve results even though solver status was acceptable.")
     else:
-        print(f"Solver did not find an optimal/feasible solution (Status: {fplan.status}).")
+        print(f"Solver did not find an optimal/feasible solution (Status: {ddcalc.status}).")
         sys.exit(1)
 
 if __name__== "__main__":

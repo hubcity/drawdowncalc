@@ -1,6 +1,6 @@
 import pulp
-import fplan.utils.pulp as pu  # add_min_constraints, add_max_constraints, add_if_then_constraint
-import fplan.core.data_loader as dl
+from ddcalc.utils.pulp import add_min_constraints, add_max_constraints, add_if_then_constraint
+from ddcalc.core.data_loader import RMD
 
 # Minimize: c^T * x -> Defined using PuLP objective
 # Subject to: A_ub * x <= b_ub -> Defined using PuLP constraints
@@ -213,7 +213,7 @@ def prepare_pulp(args, S):
         prob += std_deduction_amount[y] <= S.stded * tax_i_mul, f"MaxStdDed_{y}"
 
         # How much of the standard deduction is taken up by the non_investment_income?
-        pu.add_min_constraints(prob, standard_deduction_vars[y, 'income_portion'], std_deduction_amount[y], ordinary_income[y], M, f"StdDedIncomePortion_{y}")
+        add_min_constraints(prob, standard_deduction_vars[y, 'income_portion'], std_deduction_amount[y], ordinary_income[y], M, f"StdDedIncomePortion_{y}")
         # Whatever is left can be used by the capital gains
         prob += standard_deduction_vars[y, 'cg_portion'] <= std_deduction_amount[y] - standard_deduction_vars[y, 'income_portion'], f"StdDedCGPortionLimit_{y}"
 
@@ -249,7 +249,7 @@ def prepare_pulp(args, S):
 
              # complete the computation of how much of this CG bracket was taken up by regular income
              # cg_income_portion = min(cg_over, cg_size)
-             pu.add_min_constraints(prob, cg_vars[y, j, 'income_portion'], cg_vars[y, j, 'over'], cg_vars[y, j, 'size'], M, f"CG_{y}_{j}_IncPort")
+             add_min_constraints(prob, cg_vars[y, j, 'income_portion'], cg_vars[y, j, 'over'], cg_vars[y, j, 'size'], M, f"CG_{y}_{j}_IncPort")
 
              # The remainder of this bracket is available for capital gains
              # Portion of bracket available for CGs = size - income_portion
@@ -277,7 +277,7 @@ def prepare_pulp(args, S):
         prob += nii_vars[y, 'over'] >= nii_vars[y, 'raw_over']
 
         # NII CG Portion = min(Total Cap Gains, NII Over)
-        pu.add_min_constraints(prob, nii_vars[y, 'cg_portion'], nii_vars[y, 'over'], total_cap_gains[y], M, f"NII_{y}_CGPort")
+        add_min_constraints(prob, nii_vars[y, 'cg_portion'], nii_vars[y, 'over'], total_cap_gains[y], M, f"NII_{y}_CGPort")
 
 
         # Calculate Federal Tax (sum across brackets + penalty + CG tax + NII tax)
@@ -313,23 +313,23 @@ def prepare_pulp(args, S):
         # Implemented as discrete steps from 200% to 400%.  Currently using the 2025 rules.
         # This is reasonably fast to calculate and better than ignoring subsidies altogether.
         if (S.retireage + y <= 65) and (S.aca['slcsp'] > 0):
-            pu.add_if_then_constraint(prob, fed_agi[y] - 3.5 * S.fpl_amount * i_mul, (0.085 * fed_agi[y])/12.0 - min_payment[y], M, f"FPL_400_{y}")
-            pu.add_if_then_constraint(prob, fed_agi[y] - 3.0 * S.fpl_amount * i_mul, (0.0725 * fed_agi[y])/12.0 - min_payment[y], M, f"FPL_350_{y}")
-            pu.add_if_then_constraint(prob, fed_agi[y] - 2.75 * S.fpl_amount * i_mul, (0.06 * fed_agi[y])/12.0 - min_payment[y], M, f"FPL_300_{y}")
-            pu.add_if_then_constraint(prob, fed_agi[y] - 2.5 * S.fpl_amount * i_mul, (0.05 * fed_agi[y])/12.0 - min_payment[y], M, f"FPL_275_{y}")
-            pu.add_if_then_constraint(prob, fed_agi[y] - 2.25 * S.fpl_amount * i_mul, (0.04 * fed_agi[y])/12.0 - min_payment[y], M, f"FPL_250_{y}")
-            pu.add_if_then_constraint(prob, fed_agi[y] - 2.0 * S.fpl_amount * i_mul, (0.03 * fed_agi[y])/12.0 - min_payment[y], M, f"FPL_225_{y}")
+            add_if_then_constraint(prob, fed_agi[y] - 3.5 * S.fpl_amount * i_mul, (0.085 * fed_agi[y])/12.0 - min_payment[y], M, f"FPL_400_{y}")
+            add_if_then_constraint(prob, fed_agi[y] - 3.0 * S.fpl_amount * i_mul, (0.0725 * fed_agi[y])/12.0 - min_payment[y], M, f"FPL_350_{y}")
+            add_if_then_constraint(prob, fed_agi[y] - 2.75 * S.fpl_amount * i_mul, (0.06 * fed_agi[y])/12.0 - min_payment[y], M, f"FPL_300_{y}")
+            add_if_then_constraint(prob, fed_agi[y] - 2.5 * S.fpl_amount * i_mul, (0.05 * fed_agi[y])/12.0 - min_payment[y], M, f"FPL_275_{y}")
+            add_if_then_constraint(prob, fed_agi[y] - 2.25 * S.fpl_amount * i_mul, (0.04 * fed_agi[y])/12.0 - min_payment[y], M, f"FPL_250_{y}")
+            add_if_then_constraint(prob, fed_agi[y] - 2.0 * S.fpl_amount * i_mul, (0.03 * fed_agi[y])/12.0 - min_payment[y], M, f"FPL_225_{y}")
             prob += min_payment[y] >= (0.02 * fed_agi[y])/12.0, f"FPL_200_{y}"
             prob += raw_help[y] <= (S.aca['premium'] * i_mul)
             prob += raw_help[y] <= (S.aca['slcsp'] * i_mul) - min_payment[y]
-            pu.add_max_constraints(prob, help[y], raw_help[y], 0, M, f"Help_{y}")
+            add_max_constraints(prob, help[y], raw_help[y], 0, M, f"Help_{y}")
 #            if y > 0 and S.halfage + y != 59:
 #                prob += fed_agi[y] <= fed_agi[y-1]
 
 #            prob += min_payment[y] >= (8.5 / 100.0 * fed_agi[y]) / 12.0, f"Min_Payment_{y}"
 #            prob += raw_help[y] <= (S.aca['premium'] * hc_i_mul)
 #            prob += raw_help[y] <= (S.aca['slcsp'] * hc_i_mul) - min_payment[y]  
-#            pu.add_max_constraints(prob, help[y], raw_help[y], 0, M, f"Help_{y}")
+#            add_max_constraints(prob, help[y], raw_help[y], 0, M, f"Help_{y}")
             if S.retireage + y == 65:
                 prob += hc_payment[y] == ((S.aca['premium'] * hc_i_mul) - help[y]) * (S.birthmonth -1)
             else:
@@ -369,7 +369,7 @@ def prepare_pulp(args, S):
         # will already be in the system and the new rules won't apply to them.
         birthyear = current_year + y - age
         if (birthyear < 1960 and age >= 73) or (age >= 75):
-            rmd_factor = dl.RMD[age - 72] # Get factor for current age
+            rmd_factor = RMD[age - 72] # Get factor for current age
             # RMD amount = Previous Year End IRA Balance / rmd_factor
             # We will use this year's starting balance as a proxy for last year's ending balance
             rmd_required = bal_ira[y] * (1.0 / rmd_factor)

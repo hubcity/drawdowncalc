@@ -2,8 +2,8 @@ from flask import Flask, request, jsonify
 from flask_cors import CORS # Import CORS
 import traceback
 
-from fplan.core.data_loader import Data
-from fplan.fplan import FPlan
+from ddcalc.core.data_loader import Data
+from ddcalc.ddcalc import DDCalc
 
 app = Flask(__name__)
 CORS(app) # Enable CORS for all routes and origins by default
@@ -31,13 +31,13 @@ def calculate_plan():
         no_conversions_val = args_data.get('no_conversions', False)
         no_conversions_after_socsec_val = args_data.get('no_conversions_after_socsec', False)
 
-        fplan = FPlan(data, objective_config=objective_cfg)
-        fplan.solve(pessimistic_taxes=pessimistic_taxes_val, 
+        ddcalc = DDCalc(data, objective_config=objective_cfg)
+        ddcalc.solve(pessimistic_taxes=pessimistic_taxes_val, 
                     pessimistic_healthcare=pessimistic_healthcare_val,
                     allow_conversions=allow_conversions_val,
                     no_conversions=no_conversions_val,
                     no_conversions_after_socsec=no_conversions_after_socsec_val)
-        results = fplan.get_results() # Assuming get_results() returns serializable data
+        results = ddcalc.get_results() # Assuming get_results() returns serializable data
 #        print(jsonify(results))
         return jsonify(results)
     except Exception as e:

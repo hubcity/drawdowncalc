@@ -5,13 +5,13 @@ import argparse # We'll use Namespace to mimic args
 from .core.model_builder import prepare_pulp
 from .core.results_processor import retrieve_results, print_ascii, print_csv
 
-class FPlan:
+class DDCalc:
     """
     Encapsulates the financial planning model setup, solving, and results processing.
     """
     def __init__(self, data, objective_config=None):
         """
-        Initializes the FPlan object.
+        Initializes the DDCalc object.
 
         Args:
             data: An instance of the Data class with loaded configuration.
