@@ -3,7 +3,7 @@
 import argparse
 import sys # Import sys for sys.exit
 
-import fplan.data_loader as dl  # .Data
+import fplan.core.data_loader as dl  # .Data
 # Import the new FPlan class
 import fplan.fplan_class as fc
 

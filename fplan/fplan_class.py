@@ -3,12 +3,12 @@ import argparse # We'll use Namespace to mimic args
 
 try:
     # Attempt relative imports for use within the package
-    from . import model_builder as mb
-    from . import results_processor as rp
+    from .core import model_builder as mb
+    from .core import results_processor as rp
 except ImportError:
     # Fallback for running script directly or other import issues
-    import model_builder as mb
-    import results_processor as rp
+    import fplan.core.model_builder as mb
+    import fplan.core.results_processor as rp
 
 class FPlan:
     """
