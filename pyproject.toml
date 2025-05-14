@@ -1,29 +1,54 @@
 [build-system]
-requires = ["hatchling"]
-build-backend = "hatchling.build"
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+backend-path = ["."] # Indicates setuptools can find its build files in the current dir
 
 [project]
-name = "fplan"
-version = "0.3"
-authors = [
-  { name="Wayne Scott", email="wsc9tt@gmail.com" },
-]
-description = "Early retirement financial calculator"
+name = "drawdowncalc"
+version = "0.1.0" # You should update this as you release new versions
+description = "Financial planning tool using Linear Programming."
 readme = "README.md"
-requires-python = ">=3.10"
+requires-python = ">=3.8" # Adjust if you use features from newer Python versions
+license = { text = "GNU General Public License v3.0" } # Choose a license
+authors = [
+    { name = "hubcity", email = "hubcity@drawdowncalc.com" },
+    { name = "Wayne Scott", email = "wsc9tt@gmail.com" },
+]
 classifiers = [
     "Programming Language :: Python :: 3",
-    "License :: OSI Approved :: GNU General Public License v3 (GPLv3)",
-    "Operating System :: OS Independent",
+    "Development Status :: 3 - Alpha", # Or Beta, Production/Stable
+    # Add other relevant classifiers
+    "Topic :: Office/Business :: Financial :: Investment",
 ]
+
 dependencies = [
-    'tomli; python_version < "3.11"',
-    'scipy >= 1.9.2'
+    "flask",
+    "flask-cors",
+    "pulp",
+    # tomllib is standard in Python 3.11+. tomli is a fallback for older versions.
+    # If you require Python 3.11+, you don't need to list tomllib.
+    # If supporting older Python, include tomli conditionally or just include it.
+    'tomli; python_version < "3.11"', # For TOML parsing if not using Python 3.11+
+]
+
+[project.optional-dependencies]
+dev = [
+    # "pytest", # If you add tests
+    # "black",  # For code formatting
 ]
 
 [project.scripts]
-fplan = "fplan:main"
+# This will create a command-line script when your package is installed.
+# When the user types 'ddcalc', it will run the main() function
+# in the ddcalc.cli module.
+ddcalc = "ddcalc.cli:main"
+ddcalc-server = "ddcalc.server:main"
 
 [project.urls]
-Homepage = "https://github.com/wscott/fplan"
-Issues = "https://github.com/wscott/fplan/issues"
+"Homepage" = "https://www.drawdowncalc.com" # Example, update with your actual URL
+"Source" = "https://github.com/hubcity/drawdowncalc" # Example, update if you have a repo
+
+[tool.setuptools.packages.find]
+where = ["."]  # Search for packages in the current directory (where pyproject.toml is)
+include = ["ddcalc*"] # Include the 'ddcalc' package and any sub-packages
+exclude = ["tests*", "docs*", "scripts*", "reference", "examples"] # Exclude common non-package directories
