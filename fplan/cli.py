@@ -5,7 +5,7 @@ import sys # Import sys for sys.exit
 
 import fplan.core.data_loader as dl  # .Data
 # Import the new FPlan class
-import fplan.fplan_class as fc
+import fplan.fplan as fc
 
 
 

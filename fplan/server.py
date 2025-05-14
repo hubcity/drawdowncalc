@@ -12,7 +12,7 @@ if parent_dir not in sys.path:
 
 try:
     from fplan.core.data_loader import Data
-    from fplan.fplan_class import FPlan
+    from fplan.fplan import FPlan
 except ImportError as e:
     print(f"Error importing fplan modules: {e}")
     print(f"Current sys.path: {sys.path}")
