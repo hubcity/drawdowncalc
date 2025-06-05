@@ -62,6 +62,7 @@ def prepare_pulp(args, S):
     # ACA
     min_payment = pulp.LpVariable.dicts("ACA_Min_Payment", years_retire, lowBound=0) # ACA Minimum Payment
     raw_help = pulp.LpVariable.dicts("ACA_Raw_Help", years_retire, cat=pulp.LpContinuous) # ACA Raw Help
+    nonneg_help = pulp.LpVariable.dicts("ACA_Nonneg_Help", years_retire, cat=pulp.LpContinuous) # ACA Raw Help
     help = pulp.LpVariable.dicts("ACA_Help", years_retire, lowBound=0) # ACA Help
     hc_payment = pulp.LpVariable.dicts("ACA_HC_Payment", years_retire, lowBound=0) # ACA Health Care Payment
 
@@ -104,7 +105,7 @@ def prepare_pulp(args, S):
     inf_adj_tax = [(total_tax[y]+hc_payment[y]) * 1 / (S.i_rate ** y) for y in years_retire]
     for y in range(S.numyr-2):
         prob += jagged[y] >= (inf_adj_tax[y+2] - inf_adj_tax[y+1]) - (inf_adj_tax[y+1] - inf_adj_tax[y]), f"Jagged_Tax_Jump_{y}"
-        # prob += jagged[y] >= (inf_adj_tax[y+1] - inf_adj_tax[y]) - (inf_adj_tax[y+2] - inf_adj_tax[y+1]), f"Jagged_Tax_Jump_{y}_2"
+        prob += jagged[y] >= (inf_adj_tax[y+1] - inf_adj_tax[y]) - (inf_adj_tax[y+2] - inf_adj_tax[y+1]), f"Jagged_Tax_Jump_{y}_2"
     # Should we make a special attempt to smooth the first year?
     # prob += smooth[S.numyr-2] >= (inf_adj_tax[1] - inf_adj_tax[0]) - (inf_adj_tax[0] - 0), f"Smooth_Tax_Jump_{S.numyr-2}"
     # prob += smooth[S.numyr-2] >= (inf_adj_tax[0] - 0) - (inf_adj_tax[1] - inf_adj_tax[0]), f"Smooth_Tax_Jump_{S.numyr-2}_2"
@@ -156,7 +157,7 @@ def prepare_pulp(args, S):
         objectives = [+ 1.0 * eop_assets \
                       - 0.0 * pulp.lpSum(jagged[y] for y in range(S.numyr-1)) / len(years_retire)]
     else:  # defaults to max-spend
-        objectives = [+ 10.0 * spending_floor \
+        objectives = [+ 1.0 * spending_floor \
                       - 0.0 * pulp.lpSum(jagged[y] for y in range(S.numyr-1)) / len(years_retire)]
 
     # --- Constraints ---
@@ -313,18 +314,15 @@ def prepare_pulp(args, S):
         # Implemented as discrete steps from 200% to 400%.  Currently using the 2025 rules.
         # This is reasonably fast to calculate and better than ignoring subsidies altogether.
         if (S.retireage + y <= 65) and (S.aca['slcsp'] > 0):
-            add_if_then_constraint(prob, fed_agi[y] - 3.5 * S.fpl_amount * i_mul, (0.085 * fed_agi[y])/12.0 - min_payment[y], M, f"FPL_400_{y}")
-            add_if_then_constraint(prob, fed_agi[y] - 3.0 * S.fpl_amount * i_mul, (0.0725 * fed_agi[y])/12.0 - min_payment[y], M, f"FPL_350_{y}")
-            add_if_then_constraint(prob, fed_agi[y] - 2.75 * S.fpl_amount * i_mul, (0.06 * fed_agi[y])/12.0 - min_payment[y], M, f"FPL_300_{y}")
-            add_if_then_constraint(prob, fed_agi[y] - 2.5 * S.fpl_amount * i_mul, (0.05 * fed_agi[y])/12.0 - min_payment[y], M, f"FPL_275_{y}")
-            add_if_then_constraint(prob, fed_agi[y] - 2.25 * S.fpl_amount * i_mul, (0.04 * fed_agi[y])/12.0 - min_payment[y], M, f"FPL_250_{y}")
-            add_if_then_constraint(prob, fed_agi[y] - 2.0 * S.fpl_amount * i_mul, (0.03 * fed_agi[y])/12.0 - min_payment[y], M, f"FPL_225_{y}")
-            prob += min_payment[y] >= (0.02 * fed_agi[y])/12.0, f"FPL_200_{y}"
-            prob += raw_help[y] <= (S.aca['premium'] * i_mul)
-            prob += raw_help[y] <= (S.aca['slcsp'] * i_mul) - min_payment[y]
-            add_max_constraints(prob, help[y], raw_help[y], 0, M, f"Help_{y}")
-#            if y > 0 and S.halfage + y != 59:
-#                prob += fed_agi[y] <= fed_agi[y-1]
+            add_if_then_constraint(prob, fed_agi[y] - 3.5 * S.fpl_amount * i_mul, raw_help[y] - (S.aca['slcsp']*i_mul - (0.085 * fed_agi[y])/12.0), M, f"FPL_400_{y}")
+            add_if_then_constraint(prob, fed_agi[y] - 3.0 * S.fpl_amount * i_mul, raw_help[y] - (S.aca['slcsp']*i_mul - (0.0725 * fed_agi[y])/12.0), M, f"FPL_350_{y}")
+            add_if_then_constraint(prob, fed_agi[y] - 2.75 * S.fpl_amount * i_mul, raw_help[y] - (S.aca['slcsp']*i_mul - (0.06 * fed_agi[y])/12.0), M, f"FPL_300_{y}")
+            add_if_then_constraint(prob, fed_agi[y] - 2.5 * S.fpl_amount * i_mul, raw_help[y] - (S.aca['slcsp']*i_mul - (0.05 * fed_agi[y])/12.0), M, f"FPL_275_{y}")
+            add_if_then_constraint(prob, fed_agi[y] - 2.25 * S.fpl_amount * i_mul, raw_help[y] - (S.aca['slcsp']*i_mul - (0.04 * fed_agi[y])/12.0), M, f"FPL_250_{y}")
+            add_if_then_constraint(prob, fed_agi[y] - 2.0 * S.fpl_amount * i_mul, raw_help[y] - (S.aca['slcsp']*i_mul - (0.03 * fed_agi[y])/12.0), M, f"FPL_225_{y}")
+            prob += raw_help[y] <= S.aca['slcsp']*i_mul - (0.02 * fed_agi[y])/12.0, f"FPL_200_{y}"
+            add_max_constraints(prob, nonneg_help[y], raw_help[y], 0, M, f"Help_Nonneg_{y}")
+            add_min_constraints(prob, help[y], nonneg_help[y], S.aca['premium']*i_mul, M, f"Help_{y}")
 
 #            prob += min_payment[y] >= (8.5 / 100.0 * fed_agi[y]) / 12.0, f"Min_Payment_{y}"
 #            prob += raw_help[y] <= (S.aca['premium'] * hc_i_mul)
@@ -334,11 +332,17 @@ def prepare_pulp(args, S):
                 prob += hc_payment[y] == ((S.aca['premium'] * hc_i_mul) - help[y]) * (S.birthmonth -1)
             else:
                 prob += hc_payment[y] == ((S.aca['premium'] * hc_i_mul) - help[y]) * 12
+
+#            if y > 0:
+#                prob += hc_payment[y] <= hc_payment[y-1] * S.i_rate
+
         elif (S.retireage + y <= 65):
             if S.retireage + y == 65:
                 prob += hc_payment[y] == ((S.aca['premium'] * hc_i_mul)) * (S.birthmonth -1)
             else:
                 prob += hc_payment[y] == ((S.aca['premium'] * hc_i_mul)) * 12
+        else:
+            prob += hc_payment[y] == 0
 
 
         # State Tax Calculation
@@ -377,6 +381,12 @@ def prepare_pulp(args, S):
             prob += f_ira[y] >= rmd_required, f"RMD_{y}"
             prob += required_RMD[y] == rmd_required, f"RMD_Amount_{y}"
             # prob += ira_to_roth[y] == 0, f"RMD_Convert_{y}" # No conversions if RMD is required
+#            if y < S.numyr-1:
+#                prob += total_tax[y+1] >= total_tax[y] * S.i_rate
+        else:
+            prob += required_RMD[y] == 0
+
+
 
 
         # Roth Conversion Aging (5-year rule for all Roth additions) until age 59.5 with an additional 
@@ -408,8 +418,7 @@ def prepare_pulp(args, S):
     else:
          solver_options['msg'] = 0
 
-    # Choose a solver (CBC is default, bundled with PuLP)
-    solver = pulp.PULP_CBC_CMD(presolve=False, threads=8,timeLimit=float(args.timelimit) if args.timelimit else 90, msg=args.verbose)
-
+    # Choose a solver (HiGHs is now default, bundled with PuLP >=2.7)
+    solver = pulp.HiGHS_CMD(timeLimit=float(args.timelimit) if args.timelimit else 90, msg=args.verbose)
 
     return prob, solver, objectives
