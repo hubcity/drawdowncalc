@@ -1,3 +1,4 @@
+import os
 from flask import Flask, request, jsonify
 from flask_cors import CORS # Import CORS
 import traceback
@@ -49,7 +50,7 @@ def calculate_plan():
 
 def main():
     """Entry point for running the Flask server."""
-    app.run(debug=True, host='0.0.0.0', port=5001) # Example run command, adjust as needed
+    app.run(debug=True, host='0.0.0.0', port=int(os.environ.get("PORT", 5001))) # Example run command, adjust as needed
 
 if __name__ == '__main__':
     main()
