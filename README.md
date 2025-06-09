@@ -1,8 +1,10 @@
 # Retirement planner
 
-This is an independent fork of [Wayne Scott's fplan](https://www.github.com/wscott/fplan). It is designed to explore optimal withdrawals from savings, Roth and IRA accounts. It uses a mixed-integer linear programming solution to maximize the minimum amount of money available to spend.
+This is an independent fork of [Wayne Scott's fplan](https://www.github.com/wscott/fplan). It is designed to explore optimal withdrawals from savings, Roth and IRA accounts. It uses a mixed-integer linear programming model to calculate solutions
 
 The ideas are similar to those of James Welch at www.i-orp.com.  You should probably look at [i-orp](https://www.i-orp.com) or [wscott/fplan](https://www.github.com/wscott/fplan) before you look at this project.
+
+This software serves as the backend of the [DrawdownCalc](https://www.drawdowncalc.com) website.
 
 ## Installing
 
@@ -14,23 +16,6 @@ This program is written in Python and can be installed locally with
 * Copy `examples/sample.toml` to a new file
 * Edit with your information.  Take a close look at sample.toml and dcsingle.toml in the examples directory to see what the program supports.
 * run `fplan NEW.toml`
-
-## Output
-
-The output is a table by age with the following columns. All numbers
-in table are in 1000s of dollars.
-
-* save: amount in taxable brokerage account
-* fsave: amount to pull from savings this year
-* IRA: balance of tax-deferred IRA acount
-* fIRA: amount to pull from IRA this year. (before 59 with penalty)
-* Roth: balance of tax-exempt Roth account
-* fRoth: amount to pull from Roth this year
-* IRA2R: money converted from the IRA to Roth this year
-* rate: US + state tax bracket this year
-* tax: tax spent this year (includes IRA 10% penlty)
-* spend: net amount spent this year (includes income)
-* extra: additional spending this year
 
 ## Command-line Options
 
@@ -63,18 +48,15 @@ This program adds some features that other progams lack, such as:
 ## What's missing
 There are a few things that could be added to make this more complete.  The program does not currently take into account any of the following:
 * Taxability of social security
-    * If set to taxable it calculates 100% taxable
-    * If set to not taxable it calculates 0% taxable
+    * If set to taxable it calculates 85% taxable
 * HSA
 * AMT
 * IRMAA
 
 ## State tax
 Every state has their own rules.  I did not try to implement them all.  I put in enough to model my state and I believe many others.  The following things are assumed about state taxes (and cannot be changed in your config file):
-* Withdrawals from your IRA are taxed as income in your state
 * Capital gains are taxed as income in your state
 
 ## Known Issues
 Check the issues tab for updates.  This is what I'm currently aware of:
-* Start age for RMDs (73) cannot be changed
 * Basis calcuations for capital-gains taxes are estimates
