@@ -1,5 +1,6 @@
 import pulp
 import argparse # We'll use Namespace to mimic args
+import logging
 
 # Attempt relative imports for use within the package
 from .core.model_builder import prepare_pulp
@@ -34,7 +35,7 @@ class DDCalc:
             self.objective_config = {'type': 'max_spend'}
         else:
             self.objective_config = objective_config
-        print(objective_config)
+        logging.debug(objective_config)
 
     def solve(self, timelimit=None, verbose=False, pessimistic_taxes=False, pessimistic_healthcare=False, 
               allow_conversions=True, no_conversions=False, no_conversions_after_socsec=False,
@@ -64,22 +65,22 @@ class DDCalc:
             # Add other args defaults if prepare_pulp needs them
         )
 
-        print("Starting PuLP solver...")
+        logging.info("Starting PuLP solver...")
         for relTol in relTol_steps:
             self.prob, self.solver, self.objectives = prepare_pulp(mock_args, self.data)
-            print(f"Searching solution with relTol={relTol}")
+            # print(f"Searching solution with relTol={relTol}")
 #            self.objectives = [self.objectives[0]] # If you only want the primary objective
             self.prob.sequentialSolve(self.objectives, relativeTols=[relTol]*len(self.objectives), solver=self.solver)
             self.status = pulp.LpStatus[self.prob.status]
             if self.status == "Optimal":
-                print(f"Found solution with relTol={relTol}")
+                logging.info(f"Found solution with relTol={relTol}")
                 break
             else:
-                print(f"Solver status: {self.status} with relTol={relTol}")
+                logging.info(f"Solver status: {self.status} with relTol={relTol}")
                 if relTol != relTol_steps[-1]:
-                    print("Trying with a less strict tolerance...")
+                    logging.info("Trying with a less strict tolerance...")
 
-        print(f"Final solver status: {self.status}")
+        logging.info(f"Final solver status: {self.status}")
 
     def get_results(self):
         """
@@ -90,12 +91,12 @@ class DDCalc:
                   or None if solving failed or hasn't been run.
         """
         if self.prob is None or self.status is None:
-            print("Solver has not been run yet.")
+            logging.info("Solver has not been run yet.")
             return None
 
         # Not Solved can occur with time limit but might have a feasible solution
         if self.prob.status not in [pulp.LpStatusOptimal, pulp.LpStatusNotSolved]:
-             print(f"Solver did not find an optimal/feasible solution (Status: {self.status}).")
+             logging.info(f"Solver did not find an optimal/feasible solution (Status: {self.status}).")
              return None
 
         # Create a minimal mock 'args' for retrieve_results if needed
@@ -107,7 +108,7 @@ class DDCalc:
         self.results, self.S_out, self.prob = retrieve_results(mock_args_results, self.data, self.prob)
 
         if self.results is None:
-            print("Failed to retrieve results from the solver.")
+            logging.info("Failed to retrieve results from the solver.")
             return None
 
         # Assuming results is the list of dictionaries ready for JSON

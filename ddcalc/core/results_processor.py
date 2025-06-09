@@ -1,3 +1,4 @@
+import logging
 import pulp
 
 def retrieve_results(args, S, prob):

@@ -2,9 +2,11 @@
 
 import argparse
 import sys # Import sys for sys.exit
-
+import logging
 from ddcalc.core.data_loader import Data
 from ddcalc.ddcalc import DDCalc
+
+logging.basicConfig(level=logging.WARNING)
 
 
 def main():
@@ -80,9 +82,9 @@ def main():
             else:
                 ddcalc.print_results_ascii()
         else:
-            print("Failed to retrieve results even though solver status was acceptable.")
+            logging.warning("Failed to retrieve results even though solver status was acceptable.")
     else:
-        print(f"Solver did not find an optimal/feasible solution (Status: {ddcalc.status}).")
+        logging.warning(f"Solver did not find an optimal/feasible solution (Status: {ddcalc.status}).")
         sys.exit(1)
 
 if __name__== "__main__":

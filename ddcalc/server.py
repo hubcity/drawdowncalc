@@ -1,9 +1,12 @@
 from flask import Flask, request, jsonify
 from flask_cors import CORS # Import CORS
 import traceback
+import logging
 
 from ddcalc.core.data_loader import Data
 from ddcalc.ddcalc import DDCalc
+
+logging.basicConfig(level=logging.WARNING)
 
 app = Flask(__name__)
 CORS(app) # Enable CORS for all routes and origins by default
@@ -38,7 +41,7 @@ def calculate_plan():
                     no_conversions=no_conversions_val,
                     no_conversions_after_socsec=no_conversions_after_socsec_val)
         results = ddcalc.get_results() # Assuming get_results() returns serializable data
-#        print(jsonify(results))
+#       logging.debug(jsonify(results))
         return jsonify(results)
     except Exception as e:
         traceback.print_exc() # Print detailed error to server console
