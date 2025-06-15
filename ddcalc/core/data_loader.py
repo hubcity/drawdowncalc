@@ -71,6 +71,7 @@ class Data:
                             [462500, 35],
                             [693750, 37]]
         default_stded = 27700
+        default_stded_extra65 = 3200
         default_state_taxrates = [[0, 0]]
         default_cg_taxrates = [[0,        0],
                                [89250,   15],
@@ -80,6 +81,7 @@ class Data:
         tmp_state_taxrates = default_state_taxrates
         tmp_cg_taxrates = default_cg_taxrates
         self.stded = default_stded
+        self.stded_extra65 = default_stded_extra65
         self.state_stded = default_stded
         self.nii = 250000
         self.fpl_amount = 0 # Initialize FPL amount
@@ -115,6 +117,7 @@ class Data:
                     self.status = filing_status
                     tmp_taxrates = federal_data.get('brackets', tmp_taxrates)
                     self.stded = federal_data.get('standard_deduction', self.stded)
+                    self.stded_extra65 = federal_data.get('standard_deduction_extra65', self.stded_extra65)
                     self.nii = federal_data.get('net_investment_income_threshold', self.nii)
                     tmp_cg_taxrates = federal_data.get('capital_gains_taxrates', tmp_cg_taxrates)
                 else:

@@ -211,7 +211,8 @@ def prepare_pulp(args, S):
 
         # --- Non-investment Income Tax Calculations ---
         # Limit amounts in std deduction and brackets
-        prob += std_deduction_amount[y] <= S.stded * tax_i_mul, f"MaxStdDed_{y}"
+        extra_deduction = S.stded_extra65 if age >= 65 else 0
+        prob += std_deduction_amount[y] <= (S.stded+extra_deduction) * tax_i_mul, f"MaxStdDed_{y}"
 
         # How much of the standard deduction is taken up by the non_investment_income?
         add_min_constraints(prob, standard_deduction_vars[y, 'income_portion'], std_deduction_amount[y], ordinary_income[y], M, f"StdDedIncomePortion_{y}")

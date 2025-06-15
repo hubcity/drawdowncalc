@@ -14,7 +14,7 @@ def retrieve_results(args, S, prob):
         'spending_floor': all_values['SpendingFloor'],
         'endofplan_assets': all_values['EndOfPlan_Assets'] / (S.i_rate ** S.numyr),
         'retire': {},
-        'federal': { 'status': S.status, 'taxtable': S.taxtable, 'cg_taxtable': S.cg_taxtable, 'nii': S.nii, 'standard_deduction': S.stded },
+        'federal': { 'status': S.status, 'taxtable': S.taxtable, 'cg_taxtable': S.cg_taxtable, 'nii': S.nii, 'standard_deduction': S.stded, 'standard_deduction_extra65': S.stded_extra65 },
         'state': { 'status': S.state_status, 'taxtable': S.state_taxtable, 'standard_deduction': S.state_stded, 'taxes_ss': S.state_taxes_ss, 'taxes_retirement_income': S.state_taxes_retirement_income},
         'status': status
     }

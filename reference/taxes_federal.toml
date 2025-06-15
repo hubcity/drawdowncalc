@@ -1,5 +1,6 @@
 [Federal_Single]
 standard_deduction = 15000
+standard_deduction_extra65 = 2000
 brackets = [[0,      10],
             [11925,  12],
             [48475,  22],
@@ -16,6 +17,7 @@ capital_gains_taxrates = [[0,        0],
 
 [Federal_MFJ]
 standard_deduction = 30000
+standard_deduction_extra65 = 3200
 brackets = [[0,      10],
             [23850,  12],
             [96950 , 22],
