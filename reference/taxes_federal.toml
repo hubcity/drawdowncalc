@@ -1,35 +1,35 @@
 [Federal_Single]
-standard_deduction = 15000
+standard_deduction = 16100
 standard_deduction_extra65 = 2000
 brackets = [[0,      10],
-            [11925,  12],
-            [48475,  22],
-            [103350, 24],
-            [197300, 32],
-            [250525, 35],
-            [626350, 37]]
+            [12400,  12],
+            [50400,  22],
+            [105700, 24],
+            [201775, 32],
+            [256225, 35],
+            [640600, 37]]
 net_investment_income_threshold = 200_000
 
 capital_gains_taxrates = [[0,        0],
-               [48350,   15],
-               [533400,  20]]
+               [49450,   15],
+               [545500,  20]]
 
 
 [Federal_MFJ]
-standard_deduction = 30000
+standard_deduction = 32200
 standard_deduction_extra65 = 3200
 brackets = [[0,      10],
-            [23850,  12],
-            [96950 , 22],
-            [206700, 24],
-            [394600, 32],
-            [501050, 35],
-            [751600, 37]]
+            [24800,  12],
+            [100800, 22],
+            [211400, 24],
+            [403550, 32],
+            [512450, 35],
+            [768700, 37]]
 net_investment_income_threshold = 250_000
 
 capital_gains_taxrates = [[0,        0],
-               [96700,   15],
-               [600050,  20]]
+               [98900,   15],
+               [613700,  20]]
 
 
 [FPL]

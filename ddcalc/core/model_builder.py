@@ -6,7 +6,7 @@ from ddcalc.core.data_loader import RMD
 # Subject to: A_ub * x <= b_ub -> Defined using PuLP constraints
 # Subject to: A_eq * x == b_eq -> Defined using PuLP constraints
 def prepare_pulp(args, S):
-    current_year = 2025
+    current_year = 2026
 
     # Define the problem
     prob = pulp.LpProblem("FinancialPlan", pulp.LpMaximize)
@@ -312,16 +312,15 @@ def prepare_pulp(args, S):
         prob += state_agi[y] == state_ordinary_income[y], f"StateAGI_{y}"
 
         # aca premium subsidy
-        # Implemented as discrete steps from 200% to 400%.  Currently using the 2025 rules.
+        # Implemented as discrete steps from 200% to 400%.  Currently using the 2026 rules.
         # This is reasonably fast to calculate and better than ignoring subsidies altogether.
         if (S.retireage + y <= 65) and (S.aca['slcsp'] > 0):
-            add_if_then_constraint(prob, fed_agi[y] - 3.5 * S.fpl_amount * i_mul, raw_help[y] - (S.aca['slcsp']*i_mul - (0.085 * fed_agi[y])/12.0), M, f"FPL_400_{y}")
-            add_if_then_constraint(prob, fed_agi[y] - 3.0 * S.fpl_amount * i_mul, raw_help[y] - (S.aca['slcsp']*i_mul - (0.0725 * fed_agi[y])/12.0), M, f"FPL_350_{y}")
-            add_if_then_constraint(prob, fed_agi[y] - 2.75 * S.fpl_amount * i_mul, raw_help[y] - (S.aca['slcsp']*i_mul - (0.06 * fed_agi[y])/12.0), M, f"FPL_300_{y}")
-            add_if_then_constraint(prob, fed_agi[y] - 2.5 * S.fpl_amount * i_mul, raw_help[y] - (S.aca['slcsp']*i_mul - (0.05 * fed_agi[y])/12.0), M, f"FPL_275_{y}")
-            add_if_then_constraint(prob, fed_agi[y] - 2.25 * S.fpl_amount * i_mul, raw_help[y] - (S.aca['slcsp']*i_mul - (0.04 * fed_agi[y])/12.0), M, f"FPL_250_{y}")
-            add_if_then_constraint(prob, fed_agi[y] - 2.0 * S.fpl_amount * i_mul, raw_help[y] - (S.aca['slcsp']*i_mul - (0.03 * fed_agi[y])/12.0), M, f"FPL_225_{y}")
-            prob += raw_help[y] <= S.aca['slcsp']*i_mul - (0.02 * fed_agi[y])/12.0, f"FPL_200_{y}"
+            add_if_then_constraint(prob, fed_agi[y] - 4.0 * S.fpl_amount * i_mul, raw_help[y] - (S.aca['slcsp']*i_mul - (1.0 * fed_agi[y])/12.0), M, f"FPL_400+_{y}")
+            add_if_then_constraint(prob, fed_agi[y] - 2.75 * S.fpl_amount * i_mul, raw_help[y] - (S.aca['slcsp']*i_mul - (0.0996 * fed_agi[y])/12.0), M, f"FPL_300_{y}")
+            add_if_then_constraint(prob, fed_agi[y] - 2.5 * S.fpl_amount * i_mul, raw_help[y] - (S.aca['slcsp']*i_mul - (0.092 * fed_agi[y])/12.0), M, f"FPL_275_{y}")
+            add_if_then_constraint(prob, fed_agi[y] - 2.25 * S.fpl_amount * i_mul, raw_help[y] - (S.aca['slcsp']*i_mul - (0.0844 * fed_agi[y])/12.0), M, f"FPL_250_{y}")
+            add_if_then_constraint(prob, fed_agi[y] - 2.0 * S.fpl_amount * i_mul, raw_help[y] - (S.aca['slcsp']*i_mul - (0.0752 * fed_agi[y])/12.0), M, f"FPL_225_{y}")
+            prob += raw_help[y] <= S.aca['slcsp']*i_mul - (0.066 * fed_agi[y])/12.0, f"FPL_200_{y}"
             add_max_constraints(prob, nonneg_help[y], raw_help[y], 0, M, f"Help_Nonneg_{y}")
             add_min_constraints(prob, help[y], nonneg_help[y], S.aca['premium']*i_mul, M, f"Help_{y}")
 
