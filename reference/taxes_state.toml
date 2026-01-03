@@ -22,111 +22,111 @@
 
 [AK_Single]
 standard_deduction = 0
-brackets = []
+brackets = [[0, 0.000001]]
 tax_social_security = false
 tax_retirement_income = false
 
 [AK_MFJ]
 standard_deduction = 0
-brackets = []
+brackets = [[0, 0.000001]]
 tax_social_security = false
 tax_retirement_income = false
 
 [FL_Single]
 standard_deduction = 0
-brackets = []
+brackets = [[0, 0.000001]]
 tax_social_security = false
 tax_retirement_income = false
 
 [FL_MFJ]
 standard_deduction = 0
-brackets = []
+brackets = [[0, 0.000001]]
 tax_social_security = false
 tax_retirement_income = false
 
 [NV_Single]
 standard_deduction = 0
-brackets = []
+brackets = [[0, 0.000001]]
 tax_social_security = false
 tax_retirement_income = false
 
 [NV_MFJ]
 standard_deduction = 0
-brackets = []
+brackets = [[0, 0.000001]]
 tax_social_security = false
 tax_retirement_income = false
 
 [NH_Single]
 # Interest & Dividends tax repealed effective Jan 1, 2026
 standard_deduction = 0
-brackets = []
+brackets = [[0, 0.000001]]
 tax_social_security = false
 tax_retirement_income = false
 
 [NH_MFJ]
 standard_deduction = 0
-brackets = []
+brackets = [[0, 0.000001]]
 tax_social_security = false
 tax_retirement_income = false
 
 [SD_Single]
 standard_deduction = 0
-brackets = []
+brackets = [[0, 0.000001]]
 tax_social_security = false
 tax_retirement_income = false
 
 [SD_MFJ]
 standard_deduction = 0
-brackets = []
+brackets = [[0, 0.000001]]
 tax_social_security = false
 tax_retirement_income = false
 
 [TN_Single]
 standard_deduction = 0
-brackets = []
+brackets = [[0, 0.000001]]
 tax_social_security = false
 tax_retirement_income = false
 
 [TN_MFJ]
 standard_deduction = 0
-brackets = []
+brackets = [[0, 0.000001]]
 tax_social_security = false
 tax_retirement_income = false
 
 [TX_Single]
 standard_deduction = 0
-brackets = []
+brackets = [[0, 0.000001]]
 tax_social_security = false
 tax_retirement_income = false
 
 [TX_MFJ]
 standard_deduction = 0
-brackets = []
+brackets = [[0, 0.000001]]
 tax_social_security = false
 tax_retirement_income = false
 
 [WA_Single]
 # WA has a capital gains tax on high earners, but no general income tax
 standard_deduction = 0
-brackets = []
+brackets = [[0, 0.000001]]
 tax_social_security = false
 tax_retirement_income = false
 
 [WA_MFJ]
 standard_deduction = 0
-brackets = []
+brackets = [[0, 0.000001]]
 tax_social_security = false
 tax_retirement_income = false
 
 [WY_Single]
 standard_deduction = 0
-brackets = []
+brackets = [[0, 0.000001]]
 tax_social_security = false
 tax_retirement_income = false
 
 [WY_MFJ]
 standard_deduction = 0
-brackets = []
+brackets = [[0, 0.000001]]
 tax_social_security = false
 tax_retirement_income = false
 
