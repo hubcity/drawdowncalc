@@ -1,23 +1,36 @@
-# Retirement planner
+# DrawdownCalc
 
-This is an independent fork of [Wayne Scott's fplan](https://www.github.com/wscott/fplan). It is designed to explore optimal withdrawals from savings, Roth and IRA accounts. It uses a mixed-integer linear programming model to calculate solutions
+This is an independent fork of [Wayne Scott's fplan](https://www.github.com/wscott/fplan). It is designed to explore optimal withdrawals from savings, Roth and IRA accounts. It uses a mixed-integer linear programming model to calculate solutions.
 
 The ideas are similar to those of James Welch at www.i-orp.com.  You should probably look at [i-orp](https://www.i-orp.com) or [wscott/fplan](https://www.github.com/wscott/fplan) before you look at this project.
 
 This software serves as the backend of the [DrawdownCalc](https://www.drawdowncalc.com) website.
 
-## Installing
+## Dev Setup
 
-This program is written in Python and can be installed locally with
-`pip install --user .`.
+This is going to work best in a vitural python environment.
 
-## Usage
+You should only need to do this first step once (unless you do something crazy like change the directory name):
+`python3 -m venv .venv`
+
+Next you need to activate the environment:
+`source .venv/bin/activate`
+
+Then install the program:
+`python3 -m pip install -editable .`
+
+## Server Usage
+
+To start a server for use as a development backend to [drawdowncalc_web](https://github.com/hubcity/drawdowncalc_web):
+`ddcalc-server`
+
+This will start a server on port 5001.
+
+## Command-line Usage and Options
 
 * Copy `examples/sample.toml` to a new file
 * Edit with your information.  Take a close look at sample.toml and dcsingle.toml in the examples directory to see what the program supports.
-* run `fplan NEW.toml`
-
-## Command-line Options
+* run `ddcalc NEW.toml`
 
 ### --verbose
 Shows the progress of the solver as it attempts to maximize your spending floor.
