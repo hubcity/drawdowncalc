@@ -33,7 +33,7 @@ else: # Production or other environments
         # Fallback to a very restrictive or no-origin policy if not set,
         # or raise an error to prevent insecure deployment.
         # For now, let's default to an empty list, which means no 
-        allowed_origins_str = "https://drawdowncalc.com,https://www.drawdowncalc.com,https://https://ddcalcweb-862640917698.us-central1.run.app"
+        allowed_origins_str = "https://drawdowncalc.com,https://www.drawdowncalc.com,https://https://ddcalcweb-862640917698.us-central1.run.app,https://wired-glider-462418-d6.web.app"
     else:
         logging.info(f"Production CORS origins: {allowed_origins_str}")
 
