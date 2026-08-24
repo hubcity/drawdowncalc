@@ -17,7 +17,7 @@ Next you need to activate the environment:
 `source .venv/bin/activate`
 
 Then install the program:
-`python3 -m pip install -editable .`
+`python3 -m pip install -e .`
 
 ## Server Usage
 
@@ -64,7 +64,6 @@ There are a few things that could be added to make this more complete.  The prog
     * If set to taxable it calculates 85% taxable
 * HSA
 * AMT
-* IRMAA
 
 ## State tax
 Every state has their own rules.  I did not try to implement them all.  I put in enough to model my state and I believe many others.  The following things are assumed about state taxes (and cannot be changed in your config file):
