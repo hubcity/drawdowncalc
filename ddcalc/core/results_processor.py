@@ -8,13 +8,23 @@ def retrieve_results(args, S, prob):
                  "Required_RMD", "Roth_Balance", 
                  "Roth_Withdraw", "IRA_to_Roth", "CGD_Spendable", "Capital_Gains_Distribution", "Total_Capital_Gains", 
                  "Ordinary_Income", "Fed_AGI", "Fed_Tax", "State_AGI", "State_Tax", "Total_Tax", 
-                 "ACA_HC_Payment", "ACA_Help", "Social_Security", "True_Spending", "Excess"]
+                 "ACA_HC_Payment", "ACA_Help", "Medicare_Base", "Medicare_IRMAA", "Medicare_Payment", "Total_HC_Payment",
+                 "Social_Security", "True_Spending", "Excess"]
 #    # Extract results into a dictionary or similar structure for printing
     results = {
         'spending_floor': all_values['SpendingFloor'],
         'endofplan_assets': all_values['EndOfPlan_Assets'] / (S.i_rate ** S.numyr),
         'retire': {},
-        'federal': { 'status': S.status, 'taxtable': S.taxtable, 'cg_taxtable': S.cg_taxtable, 'nii': S.nii, 'standard_deduction': S.stded, 'standard_deduction_extra65': S.stded_extra65 },
+        'federal': { 
+            'status': S.status, 
+            'taxtable': S.taxtable, 
+            'cg_taxtable': S.cg_taxtable, 
+            'nii': S.nii, 
+            'standard_deduction': S.stded, 
+            'standard_deduction_extra65': S.stded_extra65,
+            'irmaa_brackets': getattr(S, 'irmaa_brackets', [])
+        },
+        'medicare': getattr(S, 'medicare', {}),
         'state': { 'status': S.state_status, 'taxtable': S.state_taxtable, 'standard_deduction': S.state_stded, 'taxes_ss': S.state_taxes_ss, 'taxes_retirement_income': S.state_taxes_retirement_income},
         'status': status
     }
@@ -52,7 +62,7 @@ def print_ascii(results, S):
 
     columns = ["Brokerage_Balance", "Brokerage_Withdraw", "IRA_Balance", "IRA_Withdraw", "Roth_Balance", 
                 "Roth_Withdraw", "IRA_to_Roth", "Capital_Gains_Distribution", "Fed_AGI", "Total_Tax", 
-                "ACA_HC_Payment", "Social_Security", "True_Spending", "Excess"]
+                "ACA_HC_Payment", "Medicare_Payment", "Social_Security", "True_Spending", "Excess"]
 
     print((" age" + " %6.6s" * len(columns)) % # Adjusted column count
           tuple(columns)) # b=balance, w=withdrawal/conversion
@@ -63,7 +73,6 @@ def print_ascii(results, S):
 
         values = [r_res.get(c, 0) / 1000.0 for c in columns]
 
-        div_by = 1000
         print((" %3d:" + " %6.0f" * len(columns)) %
               ((age,) + tuple(values)))
 
@@ -83,7 +92,8 @@ def print_csv(results, S):
     columns = ["Cash_Withdraw", "Brokerage_Balance", "Brokerage_Withdraw", "IRA_Balance", "IRA_Withdraw", "Roth_Balance", 
                  "Roth_Withdraw", "IRA_to_Roth", "CGD_Spendable", "Capital_Gains_Distribution", "Total_Capital_Gains", 
                  "Ordinary_Income", "Fed_AGI", "Fed_Tax", "State_Tax", "Total_Tax", 
-                 "ACA_HC_Payment", "ACA_Help", "Social_Security", "True_Spending"]
+                 "ACA_HC_Payment", "ACA_Help", "Medicare_Base", "Medicare_IRMAA", "Medicare_Payment", "Total_HC_Payment",
+                 "Social_Security", "True_Spending"]
     print(("age" + ",%6s" * len(columns)) % # Adjusted column count
           tuple(columns)) # b=balance, w=withdrawal/conversion
     for year in range(S.numyr):

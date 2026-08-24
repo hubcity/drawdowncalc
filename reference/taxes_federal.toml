@@ -61,3 +61,38 @@ fpl = [[1,	17990],
     [6,	49640],
     [7,	55970],
     [8,	62300]]
+
+[ACA]
+fpl_cliff_multiplier = 4.0
+# [applicable_percentage_rate, bracket_fpl_label]
+brackets = [
+    [0.066, "200"],
+    [0.0752, "225"],
+    [0.0844, "250"],
+    [0.092, "275"],
+    [0.0996, "400"]
+]
+
+[Medicare]
+part_b_base = 202.90
+part_d_base = 0.0
+
+[IRMAA_Single]
+# [threshold_over, monthly_part_b_surcharge, monthly_part_d_surcharge]
+brackets = [
+    [109000, 81.20, 14.50],
+    [137000, 202.90, 37.50],
+    [171000, 324.60, 60.40],
+    [205000, 446.30, 83.30],
+    [500000, 486.90, 91.00]
+]
+
+[IRMAA_MFJ]
+# [threshold_over, monthly_part_b_surcharge, monthly_part_d_surcharge]
+brackets = [
+    [218000, 81.20, 14.50],
+    [274000, 202.90, 37.50],
+    [342000, 324.60, 60.40],
+    [410000, 446.30, 83.30],
+    [750000, 486.90, 91.00]
+]

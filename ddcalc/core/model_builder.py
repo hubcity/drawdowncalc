@@ -59,10 +59,15 @@ def prepare_pulp(args, S):
     excess = pulp.LpVariable.dicts("Excess", years_retire, lowBound=0) # Excess Withdrawal
     cash_withdraw = pulp.LpVariable.dicts("Cash_Withdraw", years_retire, lowBound=0) # Cash Withdrawals
 
-    # ACA
+    # Healthcare / ACA / Medicare Variables
     help = pulp.LpVariable.dicts("ACA_Help", years_retire, lowBound=0) # ACA Help
-    hc_payment = pulp.LpVariable.dicts("ACA_HC_Payment", years_retire, lowBound=0) # ACA Health Care Payment
+    aca_payment = pulp.LpVariable.dicts("ACA_HC_Payment", years_retire, lowBound=0) # ACA Health Care Payment
     aca_eligible = pulp.LpVariable.dicts("ACA_Eligible", years_retire, cat=pulp.LpBinary) # ACA Eligible (<= 400% FPL)
+    medicare_base = pulp.LpVariable.dicts("Medicare_Base", years_retire, lowBound=0) # Medicare Base Premium
+    medicare_irmaa = pulp.LpVariable.dicts("Medicare_IRMAA", years_retire, lowBound=0) # Medicare IRMAA Surcharges
+    medicare_payment = pulp.LpVariable.dicts("Medicare_Payment", years_retire, lowBound=0) # Total Medicare Payment
+    total_hc_payment = pulp.LpVariable.dicts("Total_HC_Payment", years_retire, lowBound=0) # Total Healthcare Payment
+    irmaa_tier_active = pulp.LpVariable.dicts("IRMAA_Tier_Active", [(y, k) for y in years_retire for k in range(len(getattr(S, 'irmaa_brackets', [])))], cat=pulp.LpBinary)
 
     # Federal Tax Brackets
     std_deduction_amount = pulp.LpVariable.dicts("Std_Deduction_Amount", years_retire, lowBound=0)
@@ -100,7 +105,7 @@ def prepare_pulp(args, S):
 
     jagged = pulp.LpVariable.dicts("Jagged", range(S.numyr-1), lowBound=0)
 
-    inf_adj_tax = [(total_tax[y]+hc_payment[y]) * 1 / (S.i_rate ** y) for y in years_retire]
+    inf_adj_tax = [(total_tax[y]+total_hc_payment[y]) * 1 / (S.i_rate ** y) for y in years_retire]
     for y in range(S.numyr-2):
         prob += jagged[y] >= (inf_adj_tax[y+2] - inf_adj_tax[y+1]) - (inf_adj_tax[y+1] - inf_adj_tax[y]), f"Jagged_Tax_Jump_{y}"
         prob += jagged[y] >= (inf_adj_tax[y+1] - inf_adj_tax[y]) - (inf_adj_tax[y+2] - inf_adj_tax[y+1]), f"Jagged_Tax_Jump_{y}_2"
@@ -114,10 +119,10 @@ def prepare_pulp(args, S):
          # Spending = Withdrawals + Income - Expenses - Taxes
          # We want spending_floor <= yearly spendable amount / inflation multiplier
          total_withdrawals = f_save[y] + spend_cgd + f_ira[y] + f_roth[y] + S.income[y] + S.social_security[y]
-         total_expenses = total_tax[y] + S.expenses[y] + hc_payment[y] + spending_floor * i_mul
+         total_expenses = total_tax[y] + S.expenses[y] + total_hc_payment[y] + spending_floor * i_mul
          prob += total_withdrawals >= total_expenses, f"Min_Spend_{y}"
          prob += excess[y] == total_withdrawals - total_expenses
-         prob += true_spending[y] == total_withdrawals - total_tax[y] - excess[y] - hc_payment[y] - S.expenses[y]
+         prob += true_spending[y] == total_withdrawals - total_tax[y] - excess[y] - total_hc_payment[y] - S.expenses[y]
          prob += full_social_security[y] == S.social_security[y]
          prob += cash_withdraw[y] == S.income[y]
 #         prob += excess[y] == 0
@@ -309,43 +314,95 @@ def prepare_pulp(args, S):
             + cgd[y] + S.state_taxed_income[y] + S.state_social_security_taxed[y], f"StateTaxableIncome_{y}"
         prob += state_agi[y] == state_ordinary_income[y], f"StateAGI_{y}"
 
-        # aca premium subsidy
-        # Implemented as single-binary piecewise linear formulation with a 400% FPL cliff
-        if (S.retireage + y <= 65) and (S.aca['slcsp'] > 0):
-            m_agi = S.income_ceiling[y] if S.income_ceiling[y] < 50_000_000 else 2_000_000
-            m_subsidy = max(S.aca['slcsp'], S.aca['premium']) * i_mul
+        # Healthcare Calculations (ACA, Medicare Base, and IRMAA)
+        # Months on ACA vs Medicare for year y:
+        if age < 65:
+            aca_months = 12
+            medicare_months = 0
+        elif age == 65:
+            aca_months = max(0, S.birthmonth - 1)
+            medicare_months = max(0, 13 - S.birthmonth)
+        else: # age > 65
+            aca_months = 0
+            medicare_months = 12
 
-            # 1. 400% FPL Cliff linking constraint:
-            # If fed_agi > 4.0 * FPL * i_mul, aca_eligible must be 0
-            prob += fed_agi[y] - 4.0 * S.fpl_amount * i_mul <= m_agi * (1 - aca_eligible[y]), f"ACA_FPL_400_Cliff_{y}"
+        # 1. ACA Subsidy and Payment
+        if aca_months > 0 and (S.aca.get('premium', 0) > 0):
+            if S.aca.get('slcsp', 0) > 0:
+                m_agi = S.income_ceiling[y] if S.income_ceiling[y] < 50_000_000 else 2_000_000
+                m_subsidy = max(S.aca['slcsp'], S.aca['premium']) * i_mul + (m_agi / 12.0)
 
-            # 2. Cap subsidy at premium and force help[y] = 0 when ineligible (aca_eligible[y] == 0)
-            prob += help[y] <= (S.aca['premium'] * i_mul) * aca_eligible[y], f"ACA_Max_Subsidy_{y}"
+                # 1. FPL Cliff linking constraint:
+                # If fed_agi > fpl_cliff_multiplier * FPL * i_mul, aca_eligible must be 0
+                fpl_cliff_mult = getattr(S, 'aca_fpl_cliff', 4.0)
+                prob += fed_agi[y] - fpl_cliff_mult * S.fpl_amount * i_mul <= m_agi * (1 - aca_eligible[y]), f"ACA_FPL_Cliff_{y}"
 
-            # 3. Piecewise concave upper envelope for applicable contribution percentages
-            # When aca_eligible[y] == 0, relaxed by m_subsidy
-            brackets = [
-                (0.066, "200"),
-                (0.0752, "225"),
-                (0.0844, "250"),
-                (0.092, "275"),
-                (0.0996, "400"),
-            ]
-            for rate, tag in brackets:
-                prob += help[y] <= (S.aca['slcsp'] * i_mul - (rate * fed_agi[y]) / 12.0) + m_subsidy * (1 - aca_eligible[y]), f"ACA_Bracket_{tag}_{y}"
+                # 2. Cap subsidy at premium and force help[y] = 0 when ineligible (aca_eligible[y] == 0)
+                prob += help[y] <= (S.aca['premium'] * i_mul) * aca_eligible[y], f"ACA_Max_Subsidy_{y}"
 
-            if S.retireage + y == 65:
-                prob += hc_payment[y] == ((S.aca['premium'] * hc_i_mul) - help[y]) * (S.birthmonth - 1)
+                # 3. Piecewise concave upper envelope for applicable contribution percentages
+                aca_brackets = getattr(S, 'aca_brackets', [
+                    (0.066, "200"),
+                    (0.0752, "225"),
+                    (0.0844, "250"),
+                    (0.092, "275"),
+                    (0.0996, "400"),
+                ])
+                for rate, tag in aca_brackets:
+                    prob += help[y] <= (S.aca['slcsp'] * i_mul - (rate * fed_agi[y]) / 12.0) + m_subsidy * (1 - aca_eligible[y]), f"ACA_Bracket_{tag}_{y}"
+
+                prob += aca_payment[y] == ((S.aca['premium'] * hc_i_mul) - help[y]) * aca_months, f"ACA_Payment_{y}"
             else:
-                prob += hc_payment[y] == ((S.aca['premium'] * hc_i_mul) - help[y]) * 12
-
-        elif (S.retireage + y <= 65):
-            if S.retireage + y == 65:
-                prob += hc_payment[y] == ((S.aca['premium'] * hc_i_mul)) * (S.birthmonth - 1)
-            else:
-                prob += hc_payment[y] == ((S.aca['premium'] * hc_i_mul)) * 12
+                prob += help[y] == 0, f"ACA_Help_{y}"
+                prob += aca_payment[y] == (S.aca['premium'] * hc_i_mul) * aca_months, f"ACA_Payment_{y}"
         else:
-            prob += hc_payment[y] == 0
+            prob += help[y] == 0, f"ACA_Help_{y}"
+            prob += aca_payment[y] == 0, f"ACA_Payment_{y}"
+
+        # 2. Medicare Base Payment
+        medicare_conf = getattr(S, 'medicare', {'enabled': True, 'part_b_base': 202.90, 'part_d_base': 0.0, 'supplemental': 0.0, 'covered': 2 if S.status == 'MFJ' else 1, 'enable_irmaa': True, 'irmaa_lookback': True})
+        if medicare_months > 0 and medicare_conf.get('enabled', True):
+            base_monthly = medicare_conf.get('part_b_base', 202.90) + medicare_conf.get('part_d_base', 0.0) + medicare_conf.get('supplemental', 0.0)
+            med_covered = medicare_conf.get('covered', 2 if S.status == 'MFJ' else 1)
+            prob += medicare_base[y] == (base_monthly * hc_i_mul) * med_covered * medicare_months, f"Medicare_Base_{y}"
+        else:
+            prob += medicare_base[y] == 0, f"Medicare_Base_{y}"
+
+        # 3. Medicare IRMAA Surcharges
+        if medicare_months > 0 and medicare_conf.get('enabled', True) and medicare_conf.get('enable_irmaa', True) and hasattr(S, 'irmaa_brackets') and len(S.irmaa_brackets) > 0:
+            med_covered = medicare_conf.get('covered', 2 if S.status == 'MFJ' else 1)
+            if medicare_conf.get('irmaa_lookback', True) and y >= 2:
+                eval_agi = fed_agi[y-2]
+                eval_i_mul = S.i_rate ** (y-2)
+            else:
+                eval_agi = fed_agi[y]
+                eval_i_mul = i_mul
+
+            surcharges = [b[1] + b[2] for b in S.irmaa_brackets]
+            delta_surcharges = []
+            prev_s = 0.0
+            for s in surcharges:
+                delta_surcharges.append(s - prev_s)
+                prev_s = s
+
+            m_irmaa_agi = S.income_ceiling[y] if S.income_ceiling[y] < 50_000_000 else 5_000_000
+            for k, (threshold, pb, pd) in enumerate(S.irmaa_brackets):
+                thresh_adj = threshold * eval_i_mul
+                prob += eval_agi - thresh_adj <= m_irmaa_agi * irmaa_tier_active[y, k], f"IRMAA_Tier_Upper_{y}_{k}"
+                prob += thresh_adj - eval_agi <= m_irmaa_agi * (1 - irmaa_tier_active[y, k]), f"IRMAA_Tier_Lower_{y}_{k}"
+                if k > 0:
+                    prob += irmaa_tier_active[y, k] <= irmaa_tier_active[y, k-1], f"IRMAA_Tier_Order_{y}_{k}"
+
+            annual_irmaa = pulp.lpSum(irmaa_tier_active[y, k] * (delta_surcharges[k] * hc_i_mul * med_covered * medicare_months) for k in range(len(S.irmaa_brackets)))
+            prob += medicare_irmaa[y] == annual_irmaa, f"Medicare_IRMAA_{y}"
+        else:
+            prob += medicare_irmaa[y] == 0, f"Medicare_IRMAA_{y}"
+            for k in range(len(getattr(S, 'irmaa_brackets', []))):
+                prob += irmaa_tier_active[y, k] == 0, f"IRMAA_Tier_Zero_{y}_{k}"
+
+        # 4. Combined Healthcare Payments
+        prob += medicare_payment[y] == medicare_base[y] + medicare_irmaa[y], f"Medicare_Payment_{y}"
+        prob += total_hc_payment[y] == aca_payment[y] + medicare_payment[y], f"Total_HC_Payment_{y}"
 
 
         # State Tax Calculation

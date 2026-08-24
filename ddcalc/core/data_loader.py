@@ -166,7 +166,7 @@ class Data:
 
         # --- FPL Lookup ---
         self.aca = d.get('aca', {'premium': 0, 'slcsp': 0, 'covered': 1})
-        aca_covered_people = self.aca.get('covered', 1)
+        aca_covered_people = self.aca.get('covered', self.aca.get('people', 1))
         # Use state_abbr from taxes section if available, otherwise default or handle error
         fpl_state_key_suffix = ""
         if state_abbr == "AK":
@@ -183,6 +183,44 @@ class Data:
         else:
             logging.warning(f"Warning: FPL section '{fpl_section_key}' not found in federal tax data or federal data not loaded. FPL set to 0.")
             self.fpl_amount = 0
+
+        # --- ACA Reference Data ---
+        aca_ref = all_federal_data.get('ACA', {}) if all_federal_data else {}
+        self.aca_fpl_cliff = aca_ref.get('fpl_cliff_multiplier', 4.0)
+        self.aca_brackets = aca_ref.get('brackets', [
+            [0.066, "200"],
+            [0.0752, "225"],
+            [0.0844, "250"],
+            [0.092, "275"],
+            [0.0996, "400"]
+        ])
+
+        # --- Medicare & IRMAA Lookup ---
+        medicare_ref = all_federal_data.get('Medicare', {}) if all_federal_data else {}
+        default_part_b = medicare_ref.get('part_b_base', 202.90)
+        default_part_d = medicare_ref.get('part_d_base', 0.0)
+
+        irmaa_section_key = f"IRMAA_{self.status}"
+        irmaa_data = all_federal_data.get(irmaa_section_key, all_federal_data.get('IRMAA_MFJ', {})) if all_federal_data else {}
+        self.irmaa_brackets = irmaa_data.get('brackets', [
+            [109000 if self.status == 'Single' else 218000, 81.20, 14.50],
+            [137000 if self.status == 'Single' else 274000, 202.90, 37.50],
+            [171000 if self.status == 'Single' else 342000, 324.60, 60.40],
+            [205000 if self.status == 'Single' else 410000, 446.30, 83.30],
+            [500000 if self.status == 'Single' else 750000, 486.90, 91.00]
+        ])
+
+        default_medicare_covered = 2 if self.status == 'MFJ' else 1
+        user_medicare = d.get('medicare', {})
+        self.medicare = {
+            'enabled': user_medicare.get('enabled', True),
+            'part_b_base': user_medicare.get('part_b_base', default_part_b),
+            'part_d_base': user_medicare.get('part_d_base', default_part_d),
+            'supplemental': user_medicare.get('supplemental', 0.0),
+            'covered': user_medicare.get('covered', user_medicare.get('people', default_medicare_covered)),
+            'enable_irmaa': user_medicare.get('enable_irmaa', True),
+            'irmaa_lookback': user_medicare.get('irmaa_lookback', True),
+        }
 
         self.taxrates = [[x,y/100.0] for (x,y) in tmp_taxrates]
         cutoffs = [x[0] for x in self.taxrates][1:] + [1e8]
