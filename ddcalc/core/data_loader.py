@@ -80,9 +80,13 @@ class Data:
         tmp_taxrates = default_taxrates
         tmp_state_taxrates = default_state_taxrates
         tmp_cg_taxrates = default_cg_taxrates
+        self.status = 'MFJ'
+        self.state_status = None
         self.stded = default_stded
         self.stded_extra65 = default_stded_extra65
         self.state_stded = default_stded
+        self.state_taxes_ss = True
+        self.state_taxes_retirement_income = True
         self.nii = 250000
         self.fpl_amount = 0 # Initialize FPL amount
 

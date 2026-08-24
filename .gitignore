@@ -8,3 +8,4 @@ examples/mine.toml
 notes.txt
 scratch
 HiGHS.log
+build/

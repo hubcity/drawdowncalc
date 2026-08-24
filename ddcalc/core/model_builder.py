@@ -1,5 +1,5 @@
 import pulp
-from ddcalc.utils.pulp import add_min_constraints, add_max_constraints, add_if_then_constraint
+from ddcalc.utils.pulp import add_min_constraints
 from ddcalc.core.data_loader import RMD
 
 # Minimize: c^T * x -> Defined using PuLP objective
@@ -60,11 +60,9 @@ def prepare_pulp(args, S):
     cash_withdraw = pulp.LpVariable.dicts("Cash_Withdraw", years_retire, lowBound=0) # Cash Withdrawals
 
     # ACA
-    min_payment = pulp.LpVariable.dicts("ACA_Min_Payment", years_retire, lowBound=0) # ACA Minimum Payment
-    raw_help = pulp.LpVariable.dicts("ACA_Raw_Help", years_retire, cat=pulp.LpContinuous) # ACA Raw Help
-    nonneg_help = pulp.LpVariable.dicts("ACA_Nonneg_Help", years_retire, cat=pulp.LpContinuous) # ACA Raw Help
     help = pulp.LpVariable.dicts("ACA_Help", years_retire, lowBound=0) # ACA Help
     hc_payment = pulp.LpVariable.dicts("ACA_HC_Payment", years_retire, lowBound=0) # ACA Health Care Payment
+    aca_eligible = pulp.LpVariable.dicts("ACA_Eligible", years_retire, cat=pulp.LpBinary) # ACA Eligible (<= 400% FPL)
 
     # Federal Tax Brackets
     std_deduction_amount = pulp.LpVariable.dicts("Std_Deduction_Amount", years_retire, lowBound=0)
@@ -312,33 +310,38 @@ def prepare_pulp(args, S):
         prob += state_agi[y] == state_ordinary_income[y], f"StateAGI_{y}"
 
         # aca premium subsidy
-        # Implemented as discrete steps from 200% to 400%.  Currently using the 2026 rules.
-        # This is reasonably fast to calculate and better than ignoring subsidies altogether.
+        # Implemented as single-binary piecewise linear formulation with a 400% FPL cliff
         if (S.retireage + y <= 65) and (S.aca['slcsp'] > 0):
-            add_if_then_constraint(prob, fed_agi[y] - 4.0 * S.fpl_amount * i_mul, raw_help[y] - (S.aca['slcsp']*i_mul - (1.0 * fed_agi[y])/12.0), M, f"FPL_400+_{y}")
-            add_if_then_constraint(prob, fed_agi[y] - 2.75 * S.fpl_amount * i_mul, raw_help[y] - (S.aca['slcsp']*i_mul - (0.0996 * fed_agi[y])/12.0), M, f"FPL_300_{y}")
-            add_if_then_constraint(prob, fed_agi[y] - 2.5 * S.fpl_amount * i_mul, raw_help[y] - (S.aca['slcsp']*i_mul - (0.092 * fed_agi[y])/12.0), M, f"FPL_275_{y}")
-            add_if_then_constraint(prob, fed_agi[y] - 2.25 * S.fpl_amount * i_mul, raw_help[y] - (S.aca['slcsp']*i_mul - (0.0844 * fed_agi[y])/12.0), M, f"FPL_250_{y}")
-            add_if_then_constraint(prob, fed_agi[y] - 2.0 * S.fpl_amount * i_mul, raw_help[y] - (S.aca['slcsp']*i_mul - (0.0752 * fed_agi[y])/12.0), M, f"FPL_225_{y}")
-            prob += raw_help[y] <= S.aca['slcsp']*i_mul - (0.066 * fed_agi[y])/12.0, f"FPL_200_{y}"
-            add_max_constraints(prob, nonneg_help[y], raw_help[y], 0, M, f"Help_Nonneg_{y}")
-            add_min_constraints(prob, help[y], nonneg_help[y], S.aca['premium']*i_mul, M, f"Help_{y}")
+            m_agi = S.income_ceiling[y] if S.income_ceiling[y] < 50_000_000 else 2_000_000
+            m_subsidy = max(S.aca['slcsp'], S.aca['premium']) * i_mul
 
-#            prob += min_payment[y] >= (8.5 / 100.0 * fed_agi[y]) / 12.0, f"Min_Payment_{y}"
-#            prob += raw_help[y] <= (S.aca['premium'] * hc_i_mul)
-#            prob += raw_help[y] <= (S.aca['slcsp'] * hc_i_mul) - min_payment[y]  
-#            add_max_constraints(prob, help[y], raw_help[y], 0, M, f"Help_{y}")
+            # 1. 400% FPL Cliff linking constraint:
+            # If fed_agi > 4.0 * FPL * i_mul, aca_eligible must be 0
+            prob += fed_agi[y] - 4.0 * S.fpl_amount * i_mul <= m_agi * (1 - aca_eligible[y]), f"ACA_FPL_400_Cliff_{y}"
+
+            # 2. Cap subsidy at premium and force help[y] = 0 when ineligible (aca_eligible[y] == 0)
+            prob += help[y] <= (S.aca['premium'] * i_mul) * aca_eligible[y], f"ACA_Max_Subsidy_{y}"
+
+            # 3. Piecewise concave upper envelope for applicable contribution percentages
+            # When aca_eligible[y] == 0, relaxed by m_subsidy
+            brackets = [
+                (0.066, "200"),
+                (0.0752, "225"),
+                (0.0844, "250"),
+                (0.092, "275"),
+                (0.0996, "400"),
+            ]
+            for rate, tag in brackets:
+                prob += help[y] <= (S.aca['slcsp'] * i_mul - (rate * fed_agi[y]) / 12.0) + m_subsidy * (1 - aca_eligible[y]), f"ACA_Bracket_{tag}_{y}"
+
             if S.retireage + y == 65:
-                prob += hc_payment[y] == ((S.aca['premium'] * hc_i_mul) - help[y]) * (S.birthmonth -1)
+                prob += hc_payment[y] == ((S.aca['premium'] * hc_i_mul) - help[y]) * (S.birthmonth - 1)
             else:
                 prob += hc_payment[y] == ((S.aca['premium'] * hc_i_mul) - help[y]) * 12
 
-#            if y > 0:
-#                prob += hc_payment[y] <= hc_payment[y-1] * S.i_rate
-
         elif (S.retireage + y <= 65):
             if S.retireage + y == 65:
-                prob += hc_payment[y] == ((S.aca['premium'] * hc_i_mul)) * (S.birthmonth -1)
+                prob += hc_payment[y] == ((S.aca['premium'] * hc_i_mul)) * (S.birthmonth - 1)
             else:
                 prob += hc_payment[y] == ((S.aca['premium'] * hc_i_mul)) * 12
         else:
