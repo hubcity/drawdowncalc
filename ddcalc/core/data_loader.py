@@ -228,6 +228,11 @@ class Data:
         self.state_taxrates = [[x,y/100.0] for (x,y) in tmp_state_taxrates]
         cutoffs = [x[0] for x in self.state_taxrates][1:] + [1e8]
         self.state_taxtable = list(map(lambda x, y: [x[1], x[0], y], self.state_taxrates, cutoffs))
+        self.has_state_tax = any(rate > 0 for rate, low, high in self.state_taxtable)
+        if not self.has_state_tax:
+            self.state_stded = 0
+            self.state_taxes_ss = False
+            self.state_taxes_retirement_income = False
         self.cg_taxrates = [[x,y/100.0] for (x,y) in tmp_cg_taxrates]
         cutoffs = [x[0] for x in self.cg_taxrates][1:] + [1e8]
         self.cg_taxtable = list(map(lambda x, y: [x[1], x[0], y], self.cg_taxrates, cutoffs))
@@ -299,14 +304,14 @@ class Data:
                         prorated_amount = amount if not firstyear else (13 - self.birthmonth) / 12 * amount
                         INC_SS[year_idx] += prorated_amount
                         TAX_SS[year_idx] += prorated_amount * 0.85
-                        if self.state_taxes_ss:
+                        if self.has_state_tax and self.state_taxes_ss:
                             STATE_TAX_SS[year_idx] += prorated_amount * 0.85
                     else:
                         # Other income taxability
                         INC[year_idx] += amount
                         if is_taxable:
                             TAX[year_idx] += amount
-                        if is_state_taxable:
+                        if self.has_state_tax and is_state_taxable:
                             STATE_TAX[year_idx] += amount
                 firstyear = False
         self.income = INC

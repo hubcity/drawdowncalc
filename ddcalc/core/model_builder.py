@@ -307,12 +307,16 @@ def prepare_pulp(args, S):
 
         # State Taxable Income Calculation = Fed Taxable Income + Taxable Cap Gains - State Deduction
         # Original: state_taxable = fira + ira2roth + basis*fsave + cgd + state_taxed_extra
-        taxed_ira = 0
-        if (S.state_taxes_retirement_income):
-            taxed_ira = f_ira[y]
-        prob += state_ordinary_income[y] == taxed_ira + ira_to_roth[y] + f_save[y] * taxable_part_of_f_save \
-            + cgd[y] + S.state_taxed_income[y] + S.state_social_security_taxed[y], f"StateTaxableIncome_{y}"
-        prob += state_agi[y] == state_ordinary_income[y], f"StateAGI_{y}"
+        if getattr(S, 'has_state_tax', any(x[0] > 0 for x in S.state_taxtable)):
+            taxed_ira = 0
+            if (S.state_taxes_retirement_income):
+                taxed_ira = f_ira[y]
+            prob += state_ordinary_income[y] == taxed_ira + ira_to_roth[y] + f_save[y] * taxable_part_of_f_save \
+                + cgd[y] + S.state_taxed_income[y] + S.state_social_security_taxed[y], f"StateTaxableIncome_{y}"
+            prob += state_agi[y] == state_ordinary_income[y], f"StateAGI_{y}"
+        else:
+            prob += state_ordinary_income[y] == 0, f"StateTaxableIncome_{y}"
+            prob += state_agi[y] == 0, f"StateAGI_{y}"
 
         # Healthcare Calculations (ACA, Medicare Base, and IRMAA)
         # Months on ACA vs Medicare for year y:
@@ -407,17 +411,25 @@ def prepare_pulp(args, S):
 
         # State Tax Calculation
 #        add_min_constraints(prob, state_std_deduction_used[y], state_std_deduction_amount[y], state_ordinary_income[y], M, f"StateStdDedUsed_{y}")
-        prob += state_std_deduction_used[y] <= state_std_deduction_amount[y]
-        prob += state_std_deduction_used[y] <= state_ordinary_income[y]
-        prob += state_std_deduction_amount[y] <= S.state_stded * tax_i_mul, f"MaxStateStdDed_{y}"
-        for j, (rate, low, high) in enumerate(S.state_taxtable):
-             bracket_size = (high - low) * tax_i_mul if high != float('inf') else M
-             prob += state_tax_bracket_amount[y, j] <= bracket_size, f"MaxStateTaxBracket_{y}_{j}"
+        if getattr(S, 'has_state_tax', any(x[0] > 0 for x in S.state_taxtable)):
+            prob += state_std_deduction_used[y] <= state_std_deduction_amount[y]
+            prob += state_std_deduction_used[y] <= state_ordinary_income[y]
+            prob += state_std_deduction_amount[y] <= S.state_stded * tax_i_mul, f"MaxStateStdDed_{y}"
+            for j, (rate, low, high) in enumerate(S.state_taxtable):
+                 bracket_size = (high - low) * tax_i_mul if high != float('inf') else M
+                 prob += state_tax_bracket_amount[y, j] <= bracket_size, f"MaxStateTaxBracket_{y}_{j}"
 
-        prob += state_std_deduction_used[y] + pulp.lpSum(state_tax_bracket_amount[y, j] for j in range(len(S.state_taxtable))) == state_ordinary_income[y], f"SumStateTaxBrackets_{y}"
+            prob += state_std_deduction_used[y] + pulp.lpSum(state_tax_bracket_amount[y, j] for j in range(len(S.state_taxtable))) == state_ordinary_income[y], f"SumStateTaxBrackets_{y}"
 
-        prob += state_tax[y] == pulp.lpSum(state_tax_bracket_amount[y, j] * S.state_taxtable[j][0] for j in range(len(S.state_taxtable))), f"StateTaxCalc_{y}"
-        prob += state_tax_ordinary_income[y] == state_tax[y], f"StateTaxOrdIncome_{y}"
+            prob += state_tax[y] == pulp.lpSum(state_tax_bracket_amount[y, j] * S.state_taxtable[j][0] for j in range(len(S.state_taxtable))), f"StateTaxCalc_{y}"
+            prob += state_tax_ordinary_income[y] == state_tax[y], f"StateTaxOrdIncome_{y}"
+        else:
+            prob += state_std_deduction_used[y] == 0, f"StateStdDedUsed_{y}"
+            prob += state_std_deduction_amount[y] == 0, f"MaxStateStdDed_{y}"
+            for j in range(len(S.state_taxtable)):
+                prob += state_tax_bracket_amount[y, j] == 0, f"MaxStateTaxBracket_{y}_{j}"
+            prob += state_tax[y] == 0, f"StateTaxCalc_{y}"
+            prob += state_tax_ordinary_income[y] == 0, f"StateTaxOrdIncome_{y}"
 
         # Total Tax Calculation
         prob += total_tax[y] == fed_tax[y] + state_tax[y], f"TotalTaxCalc_{y}"
